@@ -25,10 +25,17 @@ docker compose up --build
 - API: <http://localhost:4000/api/health>
 - PostgreSQL: `localhost:5433`
 
-Compose waits for PostgreSQL's health check before starting the API. The schema is initialized from [`sql/schema.sql`](sql/schema.sql); demo data is created automatically when the database has no leagues.
-For an existing database, apply [`sql/migrations/001_match_events.sql`](sql/migrations/001_match_events.sql) and then [`sql/migrations/002_detailed_match_stats.sql`](sql/migrations/002_detailed_match_stats.sql) before starting the updated API.
+Compose waits for PostgreSQL's health check before starting the API. The schema is initialized from [`sql/schema.sql`](sql/schema.sql); demo data is created automatically when the database has no leagues. On startup, the API automatically applies pending SQL files from [`sql/migrations/`](sql/migrations) so existing database volumes receive schema updates too.
 
-To run services outside Docker, copy `backend/.env.example` to `backend/.env`, start PostgreSQL with `docker compose up -d db`, then use separate terminals:
+For local development, run `npm run dev` from the repository root. It starts the PostgreSQL container, then starts the API and web app in watch mode. Docker must be installed and running.
+
+To run only the API outside the root launcher, copy `backend/.env.example` to `backend/.env` and start PostgreSQL first:
+
+```sh
+docker compose up -d db
+```
+
+Then start the backend and frontend in separate terminals:
 
 ```sh
 cd backend

@@ -1,0 +1,7 @@
+{
+  "name": "pitch-side",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.cjs"
+  }
+}

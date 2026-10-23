@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { app } from '../../src/app';
 import { pool } from '../../src/db';
+import { applyMigrations } from '../../src/services/migrations';
 
 const clubNames = [
   'Amberlight', 'Bracken Vale', 'Cinder Reach', 'Duskwater',
@@ -297,5 +298,37 @@ describe('Pitch API', () => {
         player_id: awayPlayers.rows[0].id, red_cards: 1, fouls: 1, appearances: 1, minutes: 72,
       }),
     ]));
+  });
+
+  test('applies pending SQL migrations for a database created with an older schema', async () => {
+    await pool.query('DROP TABLE yellow_cards, red_cards, fouls, match_team_stats, player_match_stats');
+    await pool.query('ALTER TABLE goals DROP COLUMN assist_player_id');
+    await pool.query('ALTER TABLE matches DROP COLUMN home_xg, DROP COLUMN away_xg');
+
+    expect(await applyMigrations(pool)).toEqual([
+      '001_match_events.sql',
+      '002_detailed_match_stats.sql',
+    ]);
+    expect(await applyMigrations(pool)).toEqual([]);
+
+    const tables = await pool.query<{ name: string | null }>(
+      `SELECT to_regclass(name)::text AS name
+       FROM unnest(ARRAY['yellow_cards', 'red_cards', 'fouls', 'match_team_stats', 'player_match_stats']) name`,
+    );
+    expect(tables.rows.every((row) => row.name !== null)).toBe(true);
+
+    const columns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND (
+         (table_name = 'goals' AND column_name = 'assist_player_id')
+         OR (table_name = 'matches' AND column_name IN ('home_xg', 'away_xg'))
+       )`,
+    );
+    expect(columns.rows.map((row) => row.column_name).sort()).toEqual([
+      'assist_player_id',
+      'away_xg',
+      'home_xg',
+    ]);
   });
 });

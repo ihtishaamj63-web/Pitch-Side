@@ -1,8 +1,14 @@
 import { app } from './app';
 import { pool } from './db';
 import { ensureDemoLeague } from './services/demo';
+import { applyMigrations } from './services/migrations';
 
 async function start() {
+  const appliedMigrations = await applyMigrations(pool);
+  if (appliedMigrations.length > 0) {
+    console.log(`Applied database migrations: ${appliedMigrations.join(', ')}`);
+  }
+
   if (process.env.SEED_DEMO !== 'false') {
     await ensureDemoLeague();
   }

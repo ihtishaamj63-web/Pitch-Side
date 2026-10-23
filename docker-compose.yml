@@ -31,6 +31,8 @@ services:
       SEED_DEMO: ${SEED_DEMO:-true}
     ports:
       - "4000:4000"
+    volumes:
+      - ./sql:/app/sql:ro
     depends_on:
       db:
         condition: service_healthy
