@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: pitch_admin
+          POSTGRES_PASSWORD: pitch_password
+          POSTGRES_DB: pitch_db
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U pitch_admin -d pitch_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_USER: pitch_admin
+      DB_PASSWORD: pitch_password
+      DB_HOST: 127.0.0.1
+      DB_NAME: pitch_db
+      DB_PORT: 5433
+      TEST_DB_NAME: pitch_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Run backend tests
+        run: npm test
+        working-directory: backend
+      - name: Build backend
+        run: npm run build
+        working-directory: backend
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend

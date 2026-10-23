@@ -1,0 +1,40 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "seed": "tsx src/seed.ts",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "jest --runInBand --config jest.unit.config.cjs",
+    "test:integration": "jest --runInBand --config jest.integration.config.cjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
+    "jest": "^30.5.2",
+    "supertest": "^7.3.1",
+    "ts-jest": "^29.4.15",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  }
+}

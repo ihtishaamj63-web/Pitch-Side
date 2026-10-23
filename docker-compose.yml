@@ -1,0 +1,58 @@
+name: pitch
+
+services:
+  db:
+    container_name: pitch-db
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: pitch_admin
+      POSTGRES_PASSWORD: pitch_password
+      POSTGRES_DB: pitch_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pitch_admin -d pitch_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build:
+      context: ./backend
+    environment:
+      DB_USER: pitch_admin
+      DB_PASSWORD: pitch_password
+      DB_HOST: db
+      DB_NAME: pitch_db
+      DB_PORT: 5432
+      PORT: 4000
+      SEED_DEMO: ${SEED_DEMO:-true}
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:4000
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
