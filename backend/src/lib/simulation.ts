@@ -1,6 +1,6 @@
-import { ClubId, Fixture } from './league';
-import { mulberry32, RandomSource } from './random';
-import { computeTable, Club, PlayedMatch, TableRow, TableRules } from './standings';
+import { ClubId } from './league';
+import { RandomSource } from './random';
+import { Club, PlayedMatch } from './standings';
 
 export interface SimulationPlayer {
   id: ClubId;
@@ -25,31 +25,57 @@ export interface GoalScorer {
   playerId: ClubId;
   playerName: string;
   minute: number;
+  assistPlayerId: ClubId | null;
+  assistPlayerName: string | null;
+}
+
+export interface YellowCard {
+  clubId: ClubId;
+  playerId: ClubId;
+  playerName: string;
+  minute: number;
+}
+
+export interface RedCard extends YellowCard {}
+
+export interface Foul {
+  clubId: ClubId;
+  playerId: ClubId;
+  playerName: string;
+  minute: number;
+}
+
+export interface TeamMatchStats {
+  clubId: ClubId;
+  xg: number;
+  possession: number;
+  shots: number;
+  shotsOnTarget: number;
+  corners: number;
+  fouls: number;
+  saves: number;
+}
+
+export interface PlayerMatchStats {
+  clubId: ClubId;
+  playerId: ClubId;
+  minutesPlayed: number;
+  shots: number;
+  shotsOnTarget: number;
+  xg: number;
+  keyPasses: number;
+  tackles: number;
 }
 
 export interface SimulatedMatch extends PlayedMatch {
   scorers: GoalScorer[];
+  yellowCards: YellowCard[];
+  redCards: RedCard[];
+  fouls: Foul[];
+  teamStats: TeamMatchStats[];
+  playerStats: PlayerMatchStats[];
   expectedGoals: ExpectedGoals;
 }
-
-export interface ForecastOptions {
-  runs?: number;
-  seed?: number;
-  topZone?: number;
-  bottomZone?: number;
-  rules?: Partial<TableRules>;
-}
-
-export interface ForecastResult {
-  clubId: ClubId;
-  positionProbabilities: Record<number, number>;
-  titleProbability: number;
-  topZoneProbability: number;
-  bottomZoneProbability: number;
-}
-
-export type TeamForecast = ForecastResult;
-export type SeasonForecast = ForecastResult[];
 
 export interface ExpectedGoalsParameters {
   baseGoals?: number;
@@ -190,9 +216,133 @@ export function assignScorers(
       playerId: selected.id,
       playerName: selected.name,
       minute: Math.floor(rng() * 90) + 1,
+      assistPlayerId: null,
+      assistPlayerName: null,
     });
   }
   return scorers.sort((left, right) => left.minute - right.minute);
+}
+
+function assignAssist(
+  scorer: GoalScorer,
+  squad: SimulationPlayer[],
+  rng: RandomSource,
+): GoalScorer {
+  const eligible = squad
+    .filter((player) => player.id !== scorer.playerId && positionWeight(player.position) > 0);
+  if (eligible.length === 0) return scorer;
+  const player = eligible[Math.floor(rng() * eligible.length)];
+  return { ...scorer, assistPlayerId: player.id, assistPlayerName: player.name };
+}
+
+function assignPlayerEvents<T extends YellowCard>(
+  count: number,
+  homeClub: SimulationClub,
+  awayClub: SimulationClub,
+  rng: RandomSource,
+): T[] {
+  const squads = [homeClub, awayClub].flatMap((club) =>
+    (club.players ?? []).map((player) => ({ clubId: club.id, player })),
+  );
+  if (squads.length === 0) return [];
+  return Array.from({ length: count }, () => {
+    const { clubId, player } = squads[Math.floor(rng() * squads.length)];
+    return {
+      clubId,
+      playerId: player.id,
+      playerName: player.name,
+      minute: Math.floor(rng() * 90) + 1,
+    };
+  }).sort((left, right) => left.minute - right.minute) as T[];
+}
+
+function createTeamAndPlayerStats(
+  club: SimulationClub,
+  opponent: SimulationClub,
+  scorers: GoalScorer[],
+  expectedGoalsValue: number,
+  possession: number,
+  fouls: Foul[],
+  redCards: RedCard[],
+  rng: RandomSource,
+): { team: TeamMatchStats; players: PlayerMatchStats[] } {
+  const squad = club.players ?? [];
+  const eligible = squad.filter((player) => positionWeight(player.position) > 0);
+  if (eligible.length === 0 && scorers.length > 0) {
+    throw new Error('Cannot record shots without an eligible outfield player');
+  }
+  const playerStats = new Map(squad.map((player) => [player.id, {
+    clubId: club.id,
+    playerId: player.id,
+    minutesPlayed: 90,
+    shots: 0,
+    shotsOnTarget: 0,
+    xg: 0,
+    keyPasses: 0,
+    tackles: 0,
+  } satisfies PlayerMatchStats]));
+
+  for (const scorer of scorers) {
+    const stats = playerStats.get(scorer.playerId);
+    if (stats) {
+      stats.shots += 1;
+      stats.shotsOnTarget += 1;
+    }
+    if (scorer.assistPlayerId !== null) {
+      const assistStats = playerStats.get(scorer.assistPlayerId);
+      if (assistStats) assistStats.keyPasses += 1;
+    }
+  }
+  const shots = Math.max(scorers.length, samplePoisson(11.5, rng));
+  const shotsOnTarget = Math.min(shots, Math.max(scorers.length, samplePoisson(4.2, rng)));
+  const chooseAttacker = () => eligible[Math.floor(rng() * eligible.length)];
+  for (let shot = scorers.length; shot < shots && eligible.length > 0; shot += 1) {
+    const player = chooseAttacker();
+    playerStats.get(player.id)!.shots += 1;
+  }
+  for (let shot = scorers.length; shot < shotsOnTarget && eligible.length > 0; shot += 1) {
+    const available = eligible.filter((player) => {
+      const stats = playerStats.get(player.id)!;
+      return stats.shotsOnTarget < stats.shots;
+    });
+    if (!available.length) break;
+    const player = available[Math.floor(rng() * available.length)];
+    playerStats.get(player.id)!.shotsOnTarget += 1;
+  }
+
+  const weightedShots = [...playerStats.values()].map((stats) => ({
+    stats,
+    rawXg: Array.from({ length: stats.shots }, () => 0.02 + rng() * 0.16)
+      .reduce((sum, value) => sum + value, 0),
+  }));
+  const rawXgTotal = weightedShots.reduce((sum, shot) => sum + shot.rawXg, 0);
+  weightedShots.forEach(({ stats, rawXg }) => {
+    stats.xg = rawXgTotal > 0 ? expectedGoalsValue * rawXg / rawXgTotal : 0;
+  });
+
+  for (let index = 0; index < samplePoisson(4, rng); index += 1) {
+    const player = eligible.filter((candidate) => ['MID', 'FWD'].includes(candidate.position.toUpperCase()));
+    if (player.length) playerStats.get(player[Math.floor(rng() * player.length)].id)!.keyPasses += 1;
+  }
+  for (let index = 0; index < samplePoisson(25, rng); index += 1) {
+    if (eligible.length) playerStats.get(chooseAttacker().id)!.tackles += 1;
+  }
+  redCards.filter((card) => card.clubId === club.id).forEach((card) => {
+    const stats = playerStats.get(card.playerId);
+    if (stats) stats.minutesPlayed = Math.min(stats.minutesPlayed, card.minute);
+  });
+  const teamFouls = fouls.filter((foul) => foul.clubId === club.id).length;
+  const team: TeamMatchStats = {
+    clubId: club.id,
+    xg: expectedGoalsValue,
+    possession,
+    shots,
+    shotsOnTarget,
+    corners: samplePoisson(5.2, rng),
+    fouls: teamFouls,
+    saves: 0,
+  };
+  return { team, players: [...playerStats.values()] };
 }
 
 /** Simulates a match score and assigns weighted scorers with minute values. */
@@ -206,9 +356,34 @@ export function simulateMatch(
   const xg = calculateExpectedGoals(homeClub, awayClub, params);
   const homeGoals = samplePoisson(xg.home, rng);
   const awayGoals = samplePoisson(xg.away, rng);
-  const scorers = assignScorers(homeGoals, homeClub.players || [], rng, homeClub.id)
-    .concat(assignScorers(awayGoals, awayClub.players || [], rng, awayClub.id))
+  const homeScorers = assignScorers(homeGoals, homeClub.players || [], rng, homeClub.id)
+    .map((scorer) => assignAssist(scorer, homeClub.players || [], rng))
     .sort((left, right) => left.minute - right.minute);
+  const awayScorers = assignScorers(awayGoals, awayClub.players || [], rng, awayClub.id)
+    .map((scorer) => assignAssist(
+      scorer,
+      awayClub.players || [],
+      rng,
+    ))
+    .sort((left, right) => left.minute - right.minute);
+  const scorers = homeScorers.concat(awayScorers)
+    .sort((left, right) => left.minute - right.minute);
+  const yellowCards = assignPlayerEvents<YellowCard>(Math.min(6, samplePoisson(2.2, rng)), homeClub, awayClub, rng);
+  const redCards = assignPlayerEvents<RedCard>(Math.min(1, samplePoisson(0.12, rng)), homeClub, awayClub, rng);
+  const fouls = assignPlayerEvents<Foul>(samplePoisson(22, rng), homeClub, awayClub, rng);
+  const homePossession = clamp(
+    Math.round(50 + (homeClub.attack - awayClub.attack) * 0.15 + (rng() - 0.5) * 12),
+    30,
+    70,
+  );
+  const homeStats = createTeamAndPlayerStats(
+    homeClub, awayClub, homeScorers, xg.home, homePossession, fouls, redCards, rng,
+  );
+  const awayStats = createTeamAndPlayerStats(
+    awayClub, homeClub, awayScorers, xg.away, 100 - homePossession, fouls, redCards, rng,
+  );
+  homeStats.team.saves = Math.max(0, awayStats.team.shotsOnTarget - awayGoals);
+  awayStats.team.saves = Math.max(0, homeStats.team.shotsOnTarget - homeGoals);
 
   return {
     homeClubId: homeClub.id,
@@ -216,110 +391,11 @@ export function simulateMatch(
     homeGoals,
     awayGoals,
     scorers,
+    yellowCards,
+    redCards,
+    fouls,
+    teamStats: [homeStats.team, awayStats.team],
+    playerStats: [...homeStats.players, ...awayStats.players],
     expectedGoals: xg,
   };
 }
-
-/**
- * Monte Carlo season forecast from completed results and remaining fixtures.
- * One injected RNG stream is consumed across all runs for reproducibility.
- */
-export interface RunForecastInput {
-  clubs: SimulationClub[];
-  results: PlayedMatch[];
-  remainingFixtures: Fixture[];
-  rules?: Partial<TableRules>;
-  runs?: number;
-  seed?: number;
-  topZone?: number;
-  bottomZone?: number;
-}
-
-export function runForecast(input: RunForecastInput): ForecastResult[] {
-  const {
-    clubs,
-    results: playedMatches,
-    remainingFixtures,
-    rules,
-  } = input;
-  const rng = mulberry32(input.seed === undefined ? 1 : input.seed);
-  const runs = input.runs === undefined ? 10000 : input.runs;
-  const topN = input.topZone === undefined ? 4 : input.topZone;
-  const bottomN = input.bottomZone === undefined ? 3 : input.bottomZone;
-  if (!Number.isInteger(runs) || runs < 1 || runs > 50000) {
-    throw new Error('Forecast runs must be an integer between 1 and 50000');
-  }
-  if (!Number.isInteger(topN) || topN < 0 || !Number.isInteger(bottomN) || bottomN < 0) {
-    throw new Error('Top and bottom places must be non-negative integers');
-  }
-
-  const clubById = new Map<ClubId, SimulationClub>();
-  clubs.forEach((club) => {
-    if (clubById.has(club.id)) throw new Error(`Duplicate club ID: ${club.id}`);
-    clubById.set(club.id, club);
-  });
-  remainingFixtures.forEach((fixture) => {
-    if (!clubById.has(fixture.homeClubId) || !clubById.has(fixture.awayClubId)) {
-      throw new Error('Fixture references an unknown club');
-    }
-  });
-
-  const positionCounts = new Map<ClubId, Record<number, number>>();
-  const titleCounts = new Map<ClubId, number>();
-  const topCounts = new Map<ClubId, number>();
-  const bottomCounts = new Map<ClubId, number>();
-  clubs.forEach((club) => {
-    const counts: Record<number, number> = {};
-    clubs.forEach((_otherClub, index) => {
-      counts[index + 1] = 0;
-    });
-    positionCounts.set(club.id, counts);
-    titleCounts.set(club.id, 0);
-    topCounts.set(club.id, 0);
-    bottomCounts.set(club.id, 0);
-  });
-
-  for (let run = 0; run < runs; run += 1) {
-    const matches = playedMatches.slice();
-    remainingFixtures.forEach((fixture) => {
-      const homeClub = clubById.get(fixture.homeClubId) as SimulationClub;
-      const awayClub = clubById.get(fixture.awayClubId) as SimulationClub;
-      const xg = calculateExpectedGoals(homeClub, awayClub);
-      matches.push({
-        matchday: fixture.matchday,
-        homeClubId: fixture.homeClubId,
-        awayClubId: fixture.awayClubId,
-        homeGoals: samplePoisson(xg.home, rng),
-        awayGoals: samplePoisson(xg.away, rng),
-      });
-    });
-    const table: TableRow[] = computeTable(clubs, matches, rules);
-    table.forEach((standing, index) => {
-      const id = standing.clubId;
-      (positionCounts.get(id) as Record<number, number>)[index + 1] += 1;
-      if (index === 0) titleCounts.set(id, (titleCounts.get(id) || 0) + 1);
-      if (index < Math.min(topN, clubs.length)) topCounts.set(id, (topCounts.get(id) || 0) + 1);
-      if (index >= Math.max(0, clubs.length - bottomN)) {
-        bottomCounts.set(id, (bottomCounts.get(id) || 0) + 1);
-      }
-    });
-  }
-
-  return clubs.map((club) => ({
-    clubId: club.id,
-    positionProbabilities: mapProbabilities(positionCounts.get(club.id) as Record<number, number>, runs),
-    titleProbability: (titleCounts.get(club.id) || 0) / runs,
-    topZoneProbability: (topCounts.get(club.id) || 0) / runs,
-    bottomZoneProbability: (bottomCounts.get(club.id) || 0) / runs,
-  }));
-}
-
-function mapProbabilities(counts: Record<number, number>, runs: number): Record<number, number> {
-  const probabilities: Record<number, number> = {};
-  Object.keys(counts).forEach((position) => {
-    probabilities[Number(position)] = counts[Number(position)] / runs;
-  });
-  return probabilities;
-}
-
-export const forecastSeason = runForecast;

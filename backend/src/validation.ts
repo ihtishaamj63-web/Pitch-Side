@@ -30,11 +30,6 @@ export const createLeagueSchema = z.object({
   }
 });
 
-export const forecastSchema = z.object({
-  runs: z.number().int().positive().max(50_000).default(10_000),
-  seed: z.number().int().optional(),
-});
-
 export function parseId(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) throw new ApiError('Invalid id', 400);
   const id = Number(value);

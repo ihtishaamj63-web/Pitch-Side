@@ -1,13 +1,11 @@
 import type {
   ClubDetail,
   CreateLeaguePayload,
-  ForecastResponse,
   LeagueDetail,
   LeagueSummary,
   Match,
   MatchDetail,
-  ProgressionPoint,
-  Scorer,
+  PlayerStat,
   Standing,
 } from './types';
 
@@ -51,12 +49,11 @@ export const api = {
   matches: (id: number | string, matchday?: number) =>
     request<Match[]>(`/api/leagues/${id}/matches${matchday ? `?matchday=${matchday}` : ''}`),
   match: (id: number | string) => request<MatchDetail>(`/api/matches/${id}`),
-  scorers: (id: number | string) => request<Scorer[]>(`/api/leagues/${id}/scorers`),
-  progression: (id: number | string) => request<ProgressionPoint[]>(`/api/leagues/${id}/progression`),
-  forecast: (id: number | string, runs: number, seed?: number) =>
-    request<ForecastResponse>(`/api/leagues/${id}/forecast`, json({ runs, ...(seed === undefined ? {} : { seed }) })),
-  simulate: (id: number | string, action: 'next' | 'all' | 'reset') =>
+  playerStats: (id: number | string) => request<PlayerStat[]>(`/api/leagues/${id}/scorers`),
+  simulate: (id: number | string, action: 'next' | 'all') =>
     request<unknown>(`/api/leagues/${id}/simulate/${action}`, json()),
+  resetLeague: (id: number | string) =>
+    request<{ status: string }>(`/api/leagues/${id}/reset`, json()),
   club: (id: number | string) => request<ClubDetail>(`/api/clubs/${id}`),
 };
 

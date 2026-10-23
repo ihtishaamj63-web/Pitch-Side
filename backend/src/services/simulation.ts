@@ -70,14 +70,57 @@ export async function simulateMatchday(
     );
 
     await client.query(
-      'UPDATE matches SET home_goals = $1, away_goals = $2, played_at = NOW() WHERE id = $3',
-      [result.homeGoals, result.awayGoals, match.id],
+      `UPDATE matches
+       SET home_goals = $1, away_goals = $2, home_xg = $3, away_xg = $4, played_at = NOW()
+       WHERE id = $5`,
+      [result.homeGoals, result.awayGoals, result.expectedGoals.home, result.expectedGoals.away, match.id],
     );
 
     for (const event of result.scorers) {
       await client.query(
-        'INSERT INTO goals (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, $4)',
+        `INSERT INTO goals (match_id, club_id, player_id, assist_player_id, minute)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [match.id, event.clubId, event.playerId, event.assistPlayerId, event.minute],
+      );
+    }
+    for (const event of result.yellowCards) {
+      await client.query(
+        'INSERT INTO yellow_cards (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, $4)',
         [match.id, event.clubId, event.playerId, event.minute],
+      );
+    }
+    for (const event of result.redCards) {
+      await client.query(
+        'INSERT INTO red_cards (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, $4)',
+        [match.id, event.clubId, event.playerId, event.minute],
+      );
+    }
+    for (const event of result.fouls) {
+      await client.query(
+        'INSERT INTO fouls (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, $4)',
+        [match.id, event.clubId, event.playerId, event.minute],
+      );
+    }
+    for (const stats of result.teamStats) {
+      await client.query(
+        `INSERT INTO match_team_stats
+          (match_id, club_id, possession, shots, shots_on_target, corners, fouls, saves)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          match.id, stats.clubId, stats.possession, stats.shots, stats.shotsOnTarget,
+          stats.corners, stats.fouls, stats.saves,
+        ],
+      );
+    }
+    for (const stats of result.playerStats) {
+      await client.query(
+        `INSERT INTO player_match_stats
+          (match_id, club_id, player_id, minutes_played, shots, shots_on_target, xg, key_passes, tackles)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          match.id, stats.clubId, stats.playerId, stats.minutesPlayed,
+          stats.shots, stats.shotsOnTarget, stats.xg, stats.keyPasses, stats.tackles,
+        ],
       );
     }
   }

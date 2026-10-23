@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, readableError } from './api';
 import { ClubCrest } from './Crest';
-import type { Club, ClubDetail, ForecastResponse, LeagueDetail, LeagueSummary, Match, MatchDetail, ProgressionPoint, Scorer, Standing } from './types';
+import type { Club, ClubDetail, LeagueDetail, LeagueSummary, Match, MatchDetail, PlayerStat, Standing } from './types';
 import './App.css';
 
 const footerUrl = import.meta.env.VITE_PORTFOLIO_URL;
@@ -12,9 +11,7 @@ const tabs = [
   ['table', 'Table'],
   ['fixtures', 'Fixtures'],
   ['match-centre', 'Match centre'],
-  ['scorers', 'Top scorers'],
-  ['race-chart', 'Race chart'],
-  ['forecast', 'Forecast'],
+  ['scorers', 'League leaders'],
 ] as const;
 
 function App() {
@@ -27,7 +24,7 @@ function AppContent() {
       <div className="app-shell">
         <header className="topbar">
           <Link className="brand" to="/" aria-label="Pitch home"><span className="brand-mark">P</span><span>PITCH</span></Link>
-          <span className="topbar-note"><span className="live-dot" /> YOUR LEAGUE. YOUR STORY.</span>
+          <span className="topbar-note"><span className="live-dot" /> LEAGUE MANAGEMENT</span>
           <a className="topbar-link" href={footerUrl || '#leagues'} target={footerUrl ? '_blank' : undefined} rel={footerUrl ? 'noreferrer' : undefined}>Explore the season <span aria-hidden="true">↗</span></a>
         </header>
         <main className="main-content">
@@ -75,9 +72,9 @@ function LeagueHome() {
     <PageMotion>
       <section className="hero">
         <div className="hero-copy">
-          <div className="eyebrow"><span className="eyebrow-line" /> THE BEAUTIFUL GAME, BUILT YOUR WAY</div>
-          <h1>Every season<br />starts <em>somewhere.</em></h1>
-          <p>Invent your clubs. Set the rules. Then watch your own football universe come to life.</p>
+          <div className="eyebrow"><span className="eyebrow-line" /> YOUR FOOTBALL COMPETITION</div>
+          <h1>Build a league.<br /><em>Run the season.</em></h1>
+          <p>Create your clubs, simulate the fixtures and follow the table, match reports and player statistics.</p>
           <Link to="/leagues/new" className="button button-primary">Create a league <span aria-hidden="true">↗</span></Link>
         </div>
         <div className="hero-art" aria-hidden="true">
@@ -193,7 +190,8 @@ function LeaguePage() {
 
   const runSimulation = async (action: 'next' | 'all' | 'reset') => {
     try {
-      await api.simulate(leagueId, action);
+      if (action === 'reset') await api.resetLeague(leagueId);
+      else await api.simulate(leagueId, action);
       setRefreshKey(key => key + 1);
     } catch (err) { setError(readableError(err)); }
   };
@@ -212,7 +210,7 @@ function LeaguePage() {
     <BackLink to="/" label="All leagues" />
     <section className="league-masthead">
       <div className="masthead-meta"><span className="status-pill"><span className="live-dot" /> SEASON IN PLAY</span><span>{league.season_label}</span><span>{detail.clubs.length} CLUBS</span></div>
-      <div className="league-title-row"><div><h1>{league.name}</h1><p>Make every matchday count.</p></div><div className="season-progress-ring"><strong>{progressPercent}<small>%</small></strong><span>COMPLETE</span></div></div>
+      <div className="league-title-row"><div><h1>{league.name}</h1><p>{league.season_label} league competition</p></div><div className="season-progress-ring"><strong>{progressPercent}<small>%</small></strong><span>COMPLETE</span></div></div>
       <div className="season-progress"><span style={{ width: `${Math.min(100, progressPercent)}%` }} /></div>
       <div className="progress-foot"><span>MATCHDAY {Math.max(1, Math.ceil(playedMatches / Math.max(1, detail.clubs.length / 2)) + 1)}</span><span>{playedMatches} / {totalMatches} MATCHES PLAYED</span></div>
     </section>
@@ -221,16 +219,14 @@ function LeaguePage() {
     </nav>
     <div className="simulation-actions"><button className="button button-secondary button-small" onClick={() => void runSimulation('next')}>Simulate next <span>▶</span></button><button className="button button-quiet button-small" onClick={() => void runSimulation('all')}>Simulate all</button><button className="button button-quiet button-small" onClick={() => void runSimulation('reset')}>Reset</button></div></div>
     {error && <ErrorNotice message={error} onRetry={() => { setError(''); setRefreshKey(k => k + 1); }} />}
-    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={Number(searchParams.get('matchday')) || 1} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} />}
+    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={Number(searchParams.get('matchday')) || 1} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} refreshKey={refreshKey} />}
   </PageMotion>;
 }
 
-function LeagueTab({ tab, leagueId, clubs, standings, matchday, topZone, bottomZone }: { tab: string; leagueId: string; clubs: Club[]; standings: Standing[]; matchday: number; topZone: number; bottomZone: number }) {
-  if (tab === 'fixtures') return <FixturesTab leagueId={leagueId} initialMatchday={matchday} totalMatchdays={clubs.length % 2 === 0 ? 2 * (clubs.length - 1) : 2 * clubs.length} />;
-  if (tab === 'match-centre') return <MatchCentreTab leagueId={leagueId} />;
-  if (tab === 'scorers') return <ScorersTab leagueId={leagueId} />;
-  if (tab === 'race-chart') return <RaceChartTab leagueId={leagueId} clubs={clubs} />;
-  if (tab === 'forecast') return <ForecastTab leagueId={leagueId} standings={standings} />;
+function LeagueTab({ tab, leagueId, clubs, standings, matchday, topZone, bottomZone, refreshKey }: { tab: string; leagueId: string; clubs: Club[]; standings: Standing[]; matchday: number; topZone: number; bottomZone: number; refreshKey: number }) {
+  if (tab === 'fixtures') return <FixturesTab key={refreshKey} leagueId={leagueId} initialMatchday={matchday} totalMatchdays={clubs.length % 2 === 0 ? 2 * (clubs.length - 1) : 2 * clubs.length} />;
+  if (tab === 'match-centre') return <MatchCentreTab key={refreshKey} leagueId={leagueId} />;
+  if (tab === 'scorers') return <ScorersTab key={refreshKey} leagueId={leagueId} />;
   return <TableTab standings={standings} topZone={topZone} bottomZone={bottomZone} />;
 }
 
@@ -269,14 +265,14 @@ function TableTab({ standings, topZone, bottomZone }: { standings: Standing[]; t
     return <td key={field} className={className}>{field === 'Pts' ? <strong>{displayValue}</strong> : displayValue}</td>;
   };
 
-  return <section className="tab-panel"><SectionTitle kicker="THE LADDER" title="Standings" detail="Every point has a story." />
+  return <section className="tab-panel"><SectionTitle kicker="LEAGUE TABLE" title="Standings" detail="Ranked by points, goal difference and goals scored." />
     <div className="legend"><span><i className="legend-top" />Top zone</span><span><i className="legend-bottom" />Bottom zone</span><span className="legend-right">P Played · GD Goal difference · Pts Points</span></div>
     {standings.length ? <div className="table-wrap"><table className="standings-table"><thead><tr><th className="align-left">POS</th><th className="align-left">CLUB</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th className="points-col">PTS</th><th className="form-col">FORM</th></tr></thead>
       <tbody>{standings.map((row, index) => {
         const clubId = row.club_id || row.id;
         const club = { id: clubId, name: row.club_name || row.name, short_name: row.short_name, colour_primary: row.colour_primary, colour_secondary: row.colour_secondary };
         return <motion.tr layout={!reduceMotion} key={clubId} className={index < topZone ? 'zone-top' : index >= standings.length - bottomZone ? 'zone-bottom' : ''}>
-          <td className="position-cell"><span>{row.position || index + 1}</span>{row.movement !== 0 && row.movement !== undefined && <small className={row.movement > 0 ? 'position-up' : 'position-down'}>{row.movement > 0 ? '↑' : '↓'}{Math.abs(row.movement)}</small>}</td><td><Link className="table-club" to={`/clubs/${clubId}`}><ClubCrest club={club} size="small" /><strong>{club.name}</strong><span className="club-code">{club.short_name}</span></Link></td>
+          <td className="position-cell"><span>{row.position || index + 1}</span></td><td><Link className="table-club" to={`/clubs/${clubId}`}><ClubCrest club={club} size="small" /><strong>{club.name}</strong><span className="club-code">{club.short_name}</span></Link></td>
           {statCell(row, 'P')}{statCell(row, 'W')}{statCell(row, 'D')}{statCell(row, 'L')}{statCell(row, 'GF')}{statCell(row, 'GA')}{statCell(row, 'GD')}{statCell(row, 'Pts')}<td><FormDots form={row.form} /></td>
         </motion.tr>;
       })}</tbody></table></div> : <EmptyPanel title="The table is waiting" text="Simulate a matchday to bring your standings to life." />}
@@ -305,6 +301,8 @@ function MatchList({ matches, leagueId }: { matches: Match[]; leagueId?: number 
     <span className={`match-score${match.home_goals === null ? ' upcoming' : ''}`}>{match.home_goals ?? '–'} <i>:</i> {match.away_goals ?? '–'}</span>
     <MatchTeam name={match.away_club_name} shortName={match.away_short_name} id={match.away_club_id} primary={match.away_colour_primary} secondary={match.away_colour_secondary} />
     <span className="match-arrow">↗</span>
+    {match.goal_events?.length ? <span className="match-event-summary">{match.goal_events.map((goal, index) => <span key={`${goal.minute}-${index}`}><strong>{goal.player_name} {goal.minute}&apos;</strong>{goal.assist_player_name ? ` · Assist: ${goal.assist_player_name}` : ' · Unassisted'}</span>)}</span> : null}
+    {match.home_xg !== null && match.home_xg !== undefined ? <span className="match-stat-summary">xG {Number(match.home_xg).toFixed(2)} – {Number(match.away_xg).toFixed(2)} · YC {match.yellow_card_count ?? 0} · RC {match.red_card_count ?? 0}</span> : null}
   </Link>)}</div> : <EmptyPanel title="No fixtures in this round" text="Select another matchday or simulate to reveal what's next." />;
 }
 
@@ -324,13 +322,38 @@ function MatchCentreTab({ leagueId }: { leagueId: string }) {
   useEffect(() => { if (!selected) return; api.match(selected).then(setMatch).catch(e => setError(readableError(e))); }, [selected]);
   const homeGoals = match?.goals?.filter(goal => String(goal.club_id) === String(match.home_club_id)) ?? [];
   const awayGoals = match?.goals?.filter(goal => String(goal.club_id) === String(match.away_club_id)) ?? [];
+  const homeEvents = [
+    ...homeGoals.map(goal => ({ ...goal, eventType: 'goal' as const })),
+    ...(match?.yellow_cards ?? []).filter(card => String(card.club_id) === String(match?.home_club_id)).map(card => ({ ...card, eventType: 'yellow' as const })),
+    ...(match?.red_cards ?? []).filter(card => String(card.club_id) === String(match?.home_club_id)).map(card => ({ ...card, eventType: 'red' as const })),
+    ...(match?.fouls ?? []).filter(foul => String(foul.club_id) === String(match?.home_club_id)).map(foul => ({ ...foul, eventType: 'foul' as const })),
+  ].sort((left, right) => left.minute - right.minute);
+  const awayEvents = [
+    ...awayGoals.map(goal => ({ ...goal, eventType: 'goal' as const })),
+    ...(match?.yellow_cards ?? []).filter(card => String(card.club_id) === String(match?.away_club_id)).map(card => ({ ...card, eventType: 'yellow' as const })),
+    ...(match?.red_cards ?? []).filter(card => String(card.club_id) === String(match?.away_club_id)).map(card => ({ ...card, eventType: 'red' as const })),
+    ...(match?.fouls ?? []).filter(foul => String(foul.club_id) === String(match?.away_club_id)).map(foul => ({ ...foul, eventType: 'foul' as const })),
+  ].sort((left, right) => left.minute - right.minute);
+  const teamStat = (clubId: number | string) => match?.team_stats?.find(stat => String(stat.club_id) === String(clubId));
+  const homeStats = match ? teamStat(match.home_club_id) : undefined;
+  const awayStats = match ? teamStat(match.away_club_id) : undefined;
   return <section className="tab-panel"><SectionTitle kicker="UNDER THE LIGHTS" title="Match centre" detail="The moments that make the match." />
     {error && <ErrorNotice message={error} />}
     <label className="match-picker">CHOOSE A FIXTURE<select value={selected} onChange={e => setSelected(e.target.value)}>{matches.map(game => <option key={game.id} value={game.id}>{game.home_club_name} {game.home_goals ?? '–'} : {game.away_goals ?? '–'} {game.away_club_name}</option>)}</select></label>
     {match ? <div className="match-report">
       <div className="report-scoreboard"><span className="report-round">MATCHDAY {match.matchday}</span><div className="report-teams"><ReportTeam name={match.home_club_name} id={match.home_club_id} shortName={match.home_short_name} primary={match.home_colour_primary} secondary={match.home_colour_secondary} /><div className="report-score">{match.home_goals ?? '–'}<span>:</span>{match.away_goals ?? '–'}</div><ReportTeam name={match.away_club_name} id={match.away_club_id} shortName={match.away_short_name} primary={match.away_colour_primary} secondary={match.away_colour_secondary} /></div><span className="report-date">{match.played_at ? new Date(match.played_at).toLocaleString() : 'KICK-OFF PENDING'}</span></div>
-      <div className="timeline"><div className="timeline-column">{homeGoals.map(goal => <div className="goal-event" key={goal.id}><b>{goal.minute}&apos;</b><span><strong>{goal.player_name}</strong><small>GOAL</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayGoals.map(goal => <div className="goal-event" key={goal.id}><b>{goal.minute}&apos;</b><span><strong>{goal.player_name}</strong><small>GOAL</small></span></div>)}</div></div>
-      {!match.goals?.length && <p className="no-goals">No goal events recorded for this fixture.</p>}
+      <div className="timeline"><div className="timeline-column">{homeEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : 'FOUL'}</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : 'FOUL'}</small></span></div>)}</div></div>
+      {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
+      {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
+        ['Expected goals (xG)', Number(match.home_xg ?? homeStats.xg).toFixed(2), Number(match.away_xg ?? awayStats.xg).toFixed(2)],
+        ['Possession', `${homeStats.possession}%`, `${awayStats.possession}%`],
+        ['Shots', homeStats.shots, awayStats.shots],
+        ['Shots on target', homeStats.shots_on_target, awayStats.shots_on_target],
+        ['Corners', homeStats.corners, awayStats.corners],
+        ['Fouls', homeStats.fouls, awayStats.fouls],
+        ['Saves', homeStats.saves, awayStats.saves],
+      ].map(([label, homeValue, awayValue]) => <div className="match-stats-row" key={label}><strong>{homeValue}</strong><span>{label}</span><strong>{awayValue}</strong></div>)}</section>}
+      {match.player_stats?.length ? <section className="player-match-stats"><h3>Player match stats</h3><div className="player-match-stats-wrap"><table><thead><tr><th>PLAYER</th><th>MIN</th><th>G</th><th>A</th><th>SH</th><th>SOT</th><th>xG</th><th>KP</th><th>T</th><th>F</th><th>YC</th><th>RC</th></tr></thead><tbody>{match.player_stats.map(player => <tr key={player.player_id}><td>{player.player_name} <small>{player.position}</small></td><td>{player.minutes_played}</td><td>{player.goals}</td><td>{player.assists}</td><td>{player.shots}</td><td>{player.shots_on_target}</td><td>{Number(player.xg).toFixed(2)}</td><td>{player.key_passes}</td><td>{player.tackles}</td><td>{player.fouls}</td><td>{player.yellow_cards}</td><td>{player.red_cards}</td></tr>)}</tbody></table></div></section> : null}
     </div> : <EmptyPanel title="Pick a match to relive" text="Choose any fixture to see the score and goal timeline." />}
   </section>;
 }
@@ -340,62 +363,29 @@ function ReportTeam({ name, id, shortName, primary, secondary }: { name: string;
 }
 
 function ScorersTab({ leagueId }: { leagueId: string }) {
-  const [scorers, setScorers] = useState<Scorer[]>([]);
+  const [players, setPlayers] = useState<PlayerStat[]>([]);
   const [error, setError] = useState('');
-  useEffect(() => { api.scorers(leagueId).then(setScorers).catch(e => setError(readableError(e))); }, [leagueId]);
-  return <section className="tab-panel"><SectionTitle kicker="THE GOLDEN BOOT" title="Top scorers" detail="Names that find the back of the net." />
+  useEffect(() => { api.playerStats(leagueId).then(setPlayers).catch(e => setError(readableError(e))); }, [leagueId]);
+  const leaderboards = [
+    { label: 'Goals', key: 'goals' as const, suffix: 'G' },
+    { label: 'Assists', key: 'assists' as const, suffix: 'A' },
+    { label: 'Yellow cards', key: 'yellow_cards' as const, suffix: 'YC' },
+    { label: 'Red cards', key: 'red_cards' as const, suffix: 'RC' },
+    { label: 'Fouls', key: 'fouls' as const, suffix: 'F' },
+    { label: 'Shots', key: 'shots' as const, suffix: 'SH' },
+    { label: 'Shots on target', key: 'shots_on_target' as const, suffix: 'SOT' },
+    { label: 'Expected goals', key: 'xg' as const, suffix: 'xG' },
+    { label: 'Key passes', key: 'key_passes' as const, suffix: 'KP' },
+    { label: 'Tackles', key: 'tackles' as const, suffix: 'T' },
+  ];
+  return <section className="tab-panel"><SectionTitle kicker="LEAGUE LEADERS" title="Player statistics" detail="Season totals for attacking output, passing and discipline." />
     {error && <ErrorNotice message={error} />}
-    {scorers.length ? <div className="scorer-list">{scorers.map((scorer, index) => <Link to={`/clubs/${scorer.club_id}`} className="scorer-row" key={scorer.player_id}><span className="scorer-rank">{String(scorer.rank || index + 1).padStart(2, '0')}</span><div className="scorer-avatar">{scorer.player_name?.split(' ').map(part => part[0]).join('').slice(0, 2)}</div><div className="scorer-name"><strong>{scorer.player_name}</strong><span>{scorer.club_name} <small>{scorer.short_name}</small></span></div><span className="scorer-bar"><i style={{ width: `${Math.max(8, (scorer.goals / (scorers[0]?.goals || 1)) * 100)}%` }} /></span><strong className="scorer-goals">{scorer.goals}<small>G</small></strong></Link>)}</div> : <EmptyPanel title="The boot is up for grabs" text="Once goals are scored, the league's leading finishers appear here." />}
+    {players.length ? <div className="leaderboards">{leaderboards.map(({ label, key, suffix }) => {
+      const rows = [...players].sort((a, b) => Number(b[key]) - Number(a[key]) || b.goals - a.goals || a.player_name.localeCompare(b.player_name)).filter(player => Number(player[key]) > 0).slice(0, 5);
+      const maximum = Number(rows[0]?.[key]) || 1;
+      return <section className="leaderboard-panel" key={key}><h3>{label}</h3>{rows.length ? rows.map((player, index) => <Link to={`/clubs/${player.club_id}`} className="leaderboard-row" key={player.player_id}><span className="scorer-rank">{String(index + 1).padStart(2, '0')}</span><span className="leaderboard-player"><strong>{player.player_name}</strong><small>{player.club_name} · {player.short_name}</small></span><span className="leaderboard-bar"><i style={{ width: `${Math.max(8, Number(player[key]) / maximum * 100)}%` }} /></span><strong className="scorer-goals">{key === 'xg' ? Number(player[key]).toFixed(2) : player[key]}<small>{suffix}</small></strong></Link>) : <p className="leaderboard-empty">No {label.toLowerCase()} recorded.</p>}</section>;
+    })}</div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to record goals, assists and yellow cards." />}
   </section>;
-}
-
-function RaceChartTab({ leagueId, clubs }: { leagueId: string; clubs: Club[] }) {
-  const [history, setHistory] = useState<ProgressionPoint[]>([]);
-  const [error, setError] = useState('');
-  useEffect(() => { api.progression(leagueId).then(setHistory).catch(e => setError(readableError(e))); }, [leagueId]);
-  const reduceMotion = useReducedMotion();
-  const chartData = history.map(point => ({
-    matchday: point.matchday,
-    ...Object.fromEntries(point.positions.map(({ club_id, position }) => [String(club_id), position])),
-  }));
-  return <section className="tab-panel"><SectionTitle kicker="THE SEASON IN MOTION" title="Race chart" detail="The climb, the chase, the final stretch." />
-    {error && <ErrorNotice message={error} />}
-    {history.length > 1 ? <div className="chart-panel"><ResponsiveContainer width="100%" height={Math.max(280, clubs.length * 24)}>
-      <LineChart data={chartData} margin={{ top: 10, right: 16, bottom: 4, left: 0 }}>
-        <CartesianGrid stroke="#223042" strokeDasharray="4 5" vertical={false} />
-        <XAxis dataKey="matchday" tickFormatter={value => `MD ${value}`} stroke="#8a9bb0" tick={{ fill: '#8a9bb0', fontSize: 10 }} />
-        <YAxis reversed domain={[clubs.length, 1]} ticks={clubs.map((_, index) => index + 1)} allowDecimals={false} stroke="#8a9bb0" tick={{ fill: '#8a9bb0', fontSize: 10 }} width={34} />
-        <Tooltip contentStyle={{ background: '#121a24', border: '1px solid #223042', color: '#e9eef5' }} labelFormatter={value => `Matchday ${value}`} formatter={(value, name) => [value, name]} />
-        {clubs.map(club => <Line key={club.id} type="monotone" dataKey={String(club.id)} name={club.short_name} stroke={club.colour_primary} strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={!reduceMotion} animationDuration={350} connectNulls />)}
-      </LineChart>
-    </ResponsiveContainer></div> : <EmptyPanel title="The season arc is unwritten" text="Play a few matchdays to see every club's journey." />}
-  </section>;
-}
-
-function ForecastTab({ leagueId, standings }: { leagueId: string; standings: Standing[] }) {
-  const [forecast, setForecast] = useState<ForecastResponse | null>(null);
-  const [runs, setRuns] = useState(10000);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function runForecast(event?: FormEvent) {
-    event?.preventDefault(); setBusy(true); setError('');
-    try { setForecast(await api.forecast(leagueId, runs)); } catch (err) { setError(readableError(err)); }
-    finally { setBusy(false); }
-  }
-  const clubs = useMemo(() => new Map(standings.map(row => [row.club_id || row.id, row])), [standings]);
-  return <section className="tab-panel"><div className="content-heading"><div><div className="eyebrow">THE CRYSTAL BALL</div><h2>Season forecast</h2></div><p>Run the numbers. See where the season could land.</p></div>
-    <div className="forecast-setup"><div><span className="forecast-symbol">✳</span><div><strong>Monte Carlo, your way.</strong><p>Simulate the remaining fixtures and explore possible outcomes.</p></div></div><form onSubmit={runForecast}><label>SIMULATIONS<select value={runs} onChange={e => setRuns(Number(e.target.value))}><option value={1000}>1,000 runs</option><option value={5000}>5,000 runs</option><option value={10000}>10,000 runs</option><option value={25000}>25,000 runs</option><option value={50000}>50,000 runs</option></select></label><button className="button button-primary" disabled={busy}>{busy ? 'Running…' : `Run ${runs.toLocaleString()} seasons`} <span>↗</span></button></form></div>
-    {error && <ErrorNotice message={error} />}
-    {forecast && <div className="forecast-results"><div className="forecast-summary"><div><div className="eyebrow">POSSIBLE FINISHES</div><h3>Many paths. One champion.</h3></div><span>{forecast.duration_ms}ms <small>COMPUTE</small></span></div>
-      <div className="forecast-table-head"><span>CLUB</span><span>TITLE CHANCE</span><span>TOP ZONE</span><span>BOTTOM ZONE</span><span>EXPECTED FINISH</span><span>POSITION DISTRIBUTION</span></div>
-      {forecast.results.map((row, index) => { const club = clubs.get(row.club_id); const positions = Object.entries(row.positions).sort((a, b) => Number(a[0]) - Number(b[0])); const expectedPosition = positions.reduce((sum, [position, probability]) => sum + Number(position) * probability, 0); return <div className="forecast-row" key={row.club_id}><span className="forecast-club"><b>{String(index + 1).padStart(2, '0')}</b>{club && <ClubCrest club={club} size="small" />}<strong>{club?.club_name || club?.name || row.club_id}</strong></span><Probability value={row.title_probability} highlight /><Probability value={row.top_zone_probability} /><Probability value={row.bottom_zone_probability} /><span className="expected-position">#{expectedPosition ? expectedPosition.toFixed(1) : '—'} <small>average position</small></span><div className="position-heatmap" style={{ gridTemplateColumns: `repeat(${positions.length}, minmax(18px, 1fr))` }}>{positions.map(([position, probability]) => <span key={position} title={`Position ${position}: ${(probability * 100).toFixed(1)}%`} aria-label={`Position ${position}: ${(probability * 100).toFixed(1)}%`} style={{ backgroundColor: `rgba(25, 230, 140, ${Math.max(0.08, probability)})` }}>{position}</span>)}</div></div>; })}
-    </div>}
-  </section>;
-}
-
-function Probability({ value, highlight = false }: { value: number; highlight?: boolean }) {
-  const percent = value <= 1 ? value * 100 : value;
-  return <span className={`probability${highlight ? ' probability-highlight' : ''}`}><strong>{percent.toFixed(1)}%</strong><i><b style={{ width: `${Math.max(0, Math.min(100, percent))}%` }} /></i></span>;
 }
 
 function ClubPage() {

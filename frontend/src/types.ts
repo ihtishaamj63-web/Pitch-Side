@@ -49,7 +49,12 @@ export interface Match {
   away_colour_secondary: string;
   home_goals: number | null;
   away_goals: number | null;
+  home_xg?: number | null;
+  away_xg?: number | null;
+  yellow_card_count?: number;
+  red_card_count?: number;
   played_at: string | null;
+  goal_events?: Array<Pick<MatchGoal, 'club_id' | 'player_name' | 'assist_player_name' | 'minute'>>;
 }
 
 export interface MatchGoal {
@@ -57,14 +62,62 @@ export interface MatchGoal {
   club_id: number | string;
   player_id: number | string;
   player_name: string;
+  assist_player_id: number | string | null;
+  assist_player_name: string | null;
   minute: number;
+}
+
+export interface MatchYellowCard {
+  id: number | string;
+  club_id: number | string;
+  player_id: number | string;
+  player_name: string;
+  minute: number;
+}
+
+export type MatchRedCard = MatchYellowCard;
+
+export type MatchFoul = MatchYellowCard;
+
+export interface MatchTeamStats {
+  club_id: number | string;
+  possession: number;
+  shots: number;
+  shots_on_target: number;
+  corners: number;
+  fouls: number;
+  saves: number;
+  xg: number | string;
+}
+
+export interface MatchPlayerStats {
+  club_id: number | string;
+  player_id: number | string;
+  player_name: string;
+  position: string;
+  minutes_played: number;
+  shots: number;
+  shots_on_target: number;
+  xg: number | string;
+  key_passes: number;
+  tackles: number;
+  goals: number;
+  assists: number;
+  yellow_cards: number;
+  red_cards: number;
+  fouls: number;
 }
 
 export interface MatchDetail extends Match {
   goals: MatchGoal[];
+  yellow_cards: MatchYellowCard[];
+  red_cards: MatchRedCard[];
+  fouls: MatchFoul[];
+  team_stats: MatchTeamStats[];
+  player_stats: MatchPlayerStats[];
 }
 
-export interface Scorer {
+export interface PlayerStat {
   rank: number;
   player_id: number | string;
   player_name: string;
@@ -72,24 +125,17 @@ export interface Scorer {
   club_name: string;
   short_name: string;
   goals: number;
-}
-
-export interface ProgressionPoint {
-  matchday: number;
-  positions: Array<{ club_id: number | string; position: number }>;
-}
-
-export interface ForecastResult {
-  club_id: number | string;
-  positions: Record<string, number>;
-  title_probability: number;
-  top_zone_probability: number;
-  bottom_zone_probability: number;
-}
-
-export interface ForecastResponse {
-  results: ForecastResult[];
-  duration_ms: number;
+  assists: number;
+  yellow_cards: number;
+  red_cards: number;
+  fouls: number;
+  appearances: number;
+  minutes: number;
+  shots: number;
+  shots_on_target: number;
+  xg: number | string;
+  key_passes: number;
+  tackles: number;
 }
 
 export interface LeagueDetail {

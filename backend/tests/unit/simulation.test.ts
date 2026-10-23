@@ -1,9 +1,7 @@
 import { createSeededRng, mulberry32 } from '../../src/lib/random';
-import { computeTable } from '../../src/lib/standings';
 import {
   assignScorers,
   expectedGoals,
-  runForecast,
   samplePoisson,
   simulateMatch,
   SimulationClub,
@@ -126,119 +124,31 @@ describe('scorer assignment and match simulation', () => {
     const repeated = simulateMatch(home, away, createSeededRng(77));
     expect(first).toEqual(repeated);
     expect(first.scorers).toHaveLength(first.homeGoals + first.awayGoals);
+    expect(first.yellowCards).toEqual(repeated.yellowCards);
+    expect(first.teamStats.map((stats) => stats.possession)).toEqual([first.teamStats[0].possession, 100 - first.teamStats[0].possession]);
+    expect(first.teamStats.every((stats) => stats.shotsOnTarget <= stats.shots)).toBe(true);
+    expect(first.teamStats.reduce((sum, stats) => sum + stats.xg, 0)).toBeCloseTo(
+      first.expectedGoals.home + first.expectedGoals.away,
+    );
+    expect(first.playerStats).toHaveLength(home.players!.length + away.players!.length);
+    expect(first.fouls.length).toBe(first.teamStats.reduce((sum, stats) => sum + stats.fouls, 0));
     first.scorers.forEach((scorer) => {
       expect(scorer.minute).toBeGreaterThanOrEqual(1);
       expect(scorer.minute).toBeLessThanOrEqual(90);
       expect(scorer.clubId === home.id ? [12, 13, 14] : [21]).toContain(scorer.playerId);
+      if (scorer.assistPlayerId !== null) {
+        expect(scorer.assistPlayerId).not.toBe(scorer.playerId);
+        expect(scorer.clubId === home.id ? [12, 13, 14] : [21]).toContain(scorer.assistPlayerId);
+      }
     });
-  });
-});
-
-describe('runForecast', () => {
-  it('is deterministic, uses current results, and returns normalized position and zone probabilities', () => {
-    const input = {
-      clubs: [home, away],
-      results: [{ homeClubId: 1, awayClubId: 2, homeGoals: 2, awayGoals: 0 }],
-      remainingFixtures: [],
-      runs: 25,
-      seed: 10,
-      topZone: 1,
-      bottomZone: 1,
-    };
-    const forecast = runForecast(input);
-    expect(runForecast(input)).toEqual(forecast);
-    expect(forecast[0]).toEqual({
-      clubId: 1,
-      positionProbabilities: { 1: 1, 2: 0 },
-      titleProbability: 1,
-      topZoneProbability: 1,
-      bottomZoneProbability: 0,
+    first.yellowCards.forEach((card) => {
+      expect(card.minute).toBeGreaterThanOrEqual(1);
+      expect(card.minute).toBeLessThanOrEqual(90);
+      expect(card.clubId === home.id ? [11, 12, 13, 14] : [21]).toContain(card.playerId);
     });
-    expect(forecast[1].positionProbabilities).toEqual({ 1: 0, 2: 1 });
-    forecast.forEach((row) => {
-      expect(Object.values(row.positionProbabilities).reduce((sum, value) => sum + value, 0)).toBe(1);
+    first.redCards.forEach((card) => {
+      expect(card.minute).toBeGreaterThanOrEqual(1);
+      expect(card.minute).toBeLessThanOrEqual(90);
     });
-  });
-
-  it('uses the seed deterministically for forecasts with remaining fixtures', () => {
-    const input = {
-      clubs: [home, away],
-      results: [],
-      remainingFixtures: [{ matchday: 1, homeClubId: 1, awayClubId: 2 }],
-      runs: 30,
-      seed: 912,
-    };
-    expect(runForecast(input)).toEqual(runForecast(input));
-  });
-
-  it('forecasts scores without requiring player squads', () => {
-    const forecast = runForecast({
-      clubs: [
-        { id: 1, name: 'Home', attack: 70, defence: 65 },
-        { id: 2, name: 'Away', attack: 60, defence: 75 },
-      ],
-      results: [],
-      remainingFixtures: [{ matchday: 1, homeClubId: 1, awayClubId: 2 }],
-      runs: 10,
-      seed: 2026,
-    });
-
-    expect(forecast).toHaveLength(2);
-    expect(forecast.every((row) => Object.values(row.positionProbabilities)
-      .reduce((sum, probability) => sum + probability, 0) === 1)).toBe(true);
-  });
-
-  it('returns a clinched title and exact final table for a completed season', () => {
-    const clubs = [home, away];
-    const results = [
-      { homeClubId: 1, awayClubId: 2, homeGoals: 3, awayGoals: 0 },
-      { homeClubId: 2, awayClubId: 1, homeGoals: 1, awayGoals: 1 },
-    ];
-    const standings = computeTable(clubs, results);
-    const forecast = runForecast({
-      clubs,
-      results,
-      remainingFixtures: [],
-      runs: 5,
-      seed: 2,
-      rules: { pointsWin: 5, pointsDraw: 2 },
-      topZone: 1,
-      bottomZone: 1,
-    });
-    expect(standings[0].clubId).toBe(1);
-    expect(forecast[0].titleProbability).toBe(1);
-    expect(forecast.find((row) => row.clubId === standings[0].clubId)?.positionProbabilities)
-      .toEqual({ 1: 1, 2: 0 });
-  });
-
-  it('honours custom points rules and caps run count at 50,000', () => {
-    const rows = computeTable(
-      [home, away],
-      [{ homeClubId: 1, awayClubId: 2, homeGoals: 0, awayGoals: 0 }],
-      { pointsWin: 5, pointsDraw: 4 },
-    );
-    expect(rows.every((row) => row.points === 4)).toBe(true);
-    expect(() => runForecast({
-      clubs: [home, away],
-      results: [],
-      remainingFixtures: [],
-      runs: 50001,
-      seed: 1,
-    })).toThrow('Forecast runs must be an integer between 1 and 50000');
-  });
-
-  it('accepts zero top and bottom zone sizes', () => {
-    const forecast = runForecast({
-      clubs: [home, away],
-      results: [],
-      remainingFixtures: [],
-      runs: 1,
-      seed: 3,
-      topZone: 0,
-      bottomZone: 0,
-    });
-    expect(forecast.every((row) =>
-      row.topZoneProbability === 0 && row.bottomZoneProbability === 0,
-    )).toBe(true);
   });
 });

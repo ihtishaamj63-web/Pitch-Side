@@ -6,8 +6,7 @@ import { ApiError } from '../errors';
 import { createLeague } from '../services/league';
 import { findNextMatchday, simulateMatchday } from '../services/simulation';
 import { withTransaction } from '../services/transaction';
-import { createLeagueSchema, forecastSchema, parseId } from '../validation';
-import { runForecastInWorker } from '../workers/forecast';
+import { createLeagueSchema, parseId } from '../validation';
 
 export const leaguesRouter = Router();
 
@@ -213,7 +212,18 @@ leaguesRouter.post('/leagues/:id/reset', async (req, res) => {
       [leagueId],
     );
     await client.query(
-      'UPDATE matches SET home_goals = NULL, away_goals = NULL, played_at = NULL WHERE league_id = $1',
+      `DELETE FROM yellow_cards
+       WHERE match_id IN (SELECT id FROM matches WHERE league_id = $1)`,
+      [leagueId],
+    );
+    for (const table of ['red_cards', 'fouls', 'match_team_stats', 'player_match_stats']) {
+      await client.query(
+        `DELETE FROM ${table} WHERE match_id IN (SELECT id FROM matches WHERE league_id = $1)`,
+        [leagueId],
+      );
+    }
+    await client.query(
+      'UPDATE matches SET home_goals = NULL, away_goals = NULL, home_xg = NULL, away_xg = NULL, played_at = NULL WHERE league_id = $1',
       [leagueId],
     );
   });
@@ -224,101 +234,82 @@ leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
   const leagueId = parseId(req.params.id);
   await requireLeague(leagueId);
   const result = await pool.query(
-    `WITH totals AS (
-       SELECT g.player_id, p.club_id, COUNT(*)::int AS goals
-       FROM goals g
-       JOIN matches m ON m.id = g.match_id
-       JOIN players p ON p.id = g.player_id
+    `WITH goal_totals AS (
+       SELECT g.player_id, COUNT(*)::int AS goals
+       FROM goals g JOIN matches m ON m.id = g.match_id
        WHERE m.league_id = $1
-       GROUP BY g.player_id, p.club_id
+       GROUP BY g.player_id
+     ), assist_totals AS (
+       SELECT g.assist_player_id AS player_id, COUNT(*)::int AS assists
+       FROM goals g JOIN matches m ON m.id = g.match_id
+       WHERE m.league_id = $1 AND g.assist_player_id IS NOT NULL
+       GROUP BY g.assist_player_id
+     ), card_totals AS (
+       SELECT yc.player_id, COUNT(*)::int AS yellow_cards
+       FROM yellow_cards yc JOIN matches m ON m.id = yc.match_id
+       WHERE m.league_id = $1
+       GROUP BY yc.player_id
+     ), red_card_totals AS (
+       SELECT rc.player_id, COUNT(*)::int AS red_cards
+       FROM red_cards rc JOIN matches m ON m.id = rc.match_id
+       WHERE m.league_id = $1
+       GROUP BY rc.player_id
+     ), foul_totals AS (
+       SELECT f.player_id, COUNT(*)::int AS fouls
+       FROM fouls f JOIN matches m ON m.id = f.match_id
+       WHERE m.league_id = $1
+       GROUP BY f.player_id
+     ), performance_totals AS (
+       SELECT pms.player_id,
+         COUNT(*)::int AS appearances,
+         SUM(pms.minutes_played)::int AS minutes,
+         SUM(pms.shots)::int AS shots,
+         SUM(pms.shots_on_target)::int AS shots_on_target,
+         SUM(pms.xg)::numeric(7, 2) AS xg,
+         SUM(pms.key_passes)::int AS key_passes,
+         SUM(pms.tackles)::int AS tackles
+       FROM player_match_stats pms
+       JOIN matches m ON m.id = pms.match_id
+       WHERE m.league_id = $1
+       GROUP BY pms.player_id
+     ), totals AS (
+       SELECT p.id AS player_id, p.club_id,
+         COALESCE(gt.goals, 0)::int AS goals,
+         COALESCE(at.assists, 0)::int AS assists,
+         COALESCE(ct.yellow_cards, 0)::int AS yellow_cards,
+         COALESCE(rt.red_cards, 0)::int AS red_cards,
+         COALESCE(ft.fouls, 0)::int AS fouls,
+         COALESCE(pt.appearances, 0)::int AS appearances,
+         COALESCE(pt.minutes, 0)::int AS minutes,
+         COALESCE(pt.shots, 0)::int AS shots,
+         COALESCE(pt.shots_on_target, 0)::int AS shots_on_target,
+         COALESCE(pt.xg, 0)::numeric(7, 2) AS xg,
+         COALESCE(pt.key_passes, 0)::int AS key_passes,
+         COALESCE(pt.tackles, 0)::int AS tackles
+       FROM players p
+       JOIN clubs c ON c.id = p.club_id
+       LEFT JOIN goal_totals gt ON gt.player_id = p.id
+       LEFT JOIN assist_totals at ON at.player_id = p.id
+       LEFT JOIN card_totals ct ON ct.player_id = p.id
+       LEFT JOIN red_card_totals rt ON rt.player_id = p.id
+       LEFT JOIN foul_totals ft ON ft.player_id = p.id
+       LEFT JOIN performance_totals pt ON pt.player_id = p.id
+       WHERE c.league_id = $1
+         AND (
+           pt.player_id IS NOT NULL OR gt.player_id IS NOT NULL OR at.player_id IS NOT NULL
+           OR ct.player_id IS NOT NULL OR rt.player_id IS NOT NULL OR ft.player_id IS NOT NULL
+         )
      )
      SELECT RANK() OVER (ORDER BY t.goals DESC)::int AS rank,
        p.id AS player_id, p.name AS player_name, c.id AS club_id,
-       c.name AS club_name, c.short_name, t.goals
+       c.name AS club_name, c.short_name, t.goals, t.assists, t.yellow_cards,
+       t.red_cards, t.fouls, t.appearances, t.minutes, t.shots,
+       t.shots_on_target, t.xg, t.key_passes, t.tackles
      FROM totals t
      JOIN players p ON p.id = t.player_id
      JOIN clubs c ON c.id = t.club_id
-     ORDER BY rank, p.name`,
+     ORDER BY t.goals DESC, t.assists DESC, t.yellow_cards DESC, p.name`,
     [leagueId],
   );
   res.json(result.rows);
-});
-
-leaguesRouter.get('/leagues/:id/progression', async (req, res) => {
-  const leagueId = parseId(req.params.id);
-  const league = await requireLeague(leagueId);
-  const matchdays = await pool.query<{ matchday: number }>(
-    'SELECT DISTINCT matchday FROM matches WHERE league_id = $1 ORDER BY matchday',
-    [leagueId],
-  );
-  const positions = await Promise.all(matchdays.rows.map(async ({ matchday }) => ({
-    matchday,
-    positions: (await tableForLeague(league, matchday)).map((row) => ({
-      club_id: row.club_id,
-      position: row.position,
-    })),
-  })));
-  res.json(positions);
-});
-
-leaguesRouter.post('/leagues/:id/forecast', async (req, res) => {
-  const leagueId = parseId(req.params.id);
-  const parsed = forecastSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    throw new ApiError(parsed.error.issues[0]?.message ?? 'Invalid forecast settings', 400);
-  }
-  const league = await requireLeague(leagueId);
-  const [clubsResult, matchesResult] = await Promise.all([
-    pool.query(
-      'SELECT id, name, attack, defence FROM clubs WHERE league_id = $1 ORDER BY id',
-      [leagueId],
-    ),
-    pool.query(
-      `SELECT matchday, home_club_id, away_club_id, home_goals, away_goals
-       FROM matches WHERE league_id = $1 ORDER BY matchday, id`,
-      [leagueId],
-    ),
-  ]);
-  const clubs = clubsResult.rows.map((club) => ({
-    id: club.id,
-    name: club.name,
-    attack: club.attack,
-    defence: club.defence,
-  }));
-  const results = matchesResult.rows.filter((match) => match.home_goals !== null).map((match) => ({
-    matchday: match.matchday,
-    homeClubId: match.home_club_id,
-    awayClubId: match.away_club_id,
-    homeGoals: match.home_goals,
-    awayGoals: match.away_goals,
-  }));
-  const remainingFixtures = matchesResult.rows
-    .filter((match) => match.home_goals === null)
-    .map((match) => ({
-      matchday: match.matchday,
-      homeClubId: match.home_club_id,
-      awayClubId: match.away_club_id,
-    }));
-  const durationStart = performance.now();
-  const forecast = await runForecastInWorker({
-    clubs,
-    results,
-    remainingFixtures,
-    rules: { pointsWin: league.points_win, pointsDraw: league.points_draw },
-    runs: parsed.data.runs,
-    seed: parsed.data.seed ?? 1,
-    topZone: league.top_zone,
-    bottomZone: league.bottom_zone,
-  });
-  const duration_ms = Math.round(performance.now() - durationStart);
-  res.json({
-    results: forecast.map((row) => ({
-      club_id: row.clubId,
-      positions: row.positionProbabilities,
-      title_probability: row.titleProbability,
-      top_zone_probability: row.topZoneProbability,
-      bottom_zone_probability: row.bottomZoneProbability,
-    })),
-    duration_ms,
-  });
 });
