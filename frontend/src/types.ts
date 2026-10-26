@@ -7,6 +7,21 @@ export interface LeagueSummary {
   total_matches: number;
 }
 
+export type Tactics = 'attacking' | 'balanced' | 'defensive';
+
+export interface ManagerMatchSummary {
+  matchId: number;
+  matchday: number;
+  clubId: number;
+  opponentId: number;
+  isHome: boolean;
+  tactics: Tactics;
+  expectedGoalsFor: number;
+  expectedGoalsAgainst: number;
+  goalsFor: number;
+  goalsAgainst: number;
+}
+
 export interface Club {
   id: number | string;
   name: string;

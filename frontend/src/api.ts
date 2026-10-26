@@ -3,10 +3,12 @@ import type {
   CreateLeaguePayload,
   LeagueDetail,
   LeagueSummary,
+  ManagerMatchSummary,
   Match,
   MatchDetail,
   PlayerStat,
   Standing,
+  Tactics,
 } from './types';
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/$/, '');
@@ -41,6 +43,12 @@ const json = (data?: unknown): RequestInit => ({
   ...(data === undefined ? {} : { body: JSON.stringify(data) }),
 });
 
+export interface ManagerSimulationResponse {
+  matchday: number;
+  matchesPlayed: number;
+  managerMatch: ManagerMatchSummary | null;
+}
+
 export const api = {
   leagues: () => request<LeagueSummary[]>('/api/leagues'),
   createLeague: (data: CreateLeaguePayload) => request<{ id: number | string }>('/api/leagues', json(data)),
@@ -52,6 +60,11 @@ export const api = {
   playerStats: (id: number | string) => request<PlayerStat[]>(`/api/leagues/${id}/scorers`),
   simulate: (id: number | string, action: 'next' | 'all') =>
     request<unknown>(`/api/leagues/${id}/simulate/${action}`, json()),
+  simulateWithManager: (id: number | string, clubId: number, tactics: Tactics) =>
+    request<ManagerSimulationResponse>(
+      `/api/leagues/${id}/simulate/next`,
+      json({ managerClubId: clubId, tactics }),
+    ),
   resetLeague: (id: number | string) =>
     request<{ status: string }>(`/api/leagues/${id}/reset`, json()),
   club: (id: number | string) => request<ClubDetail>(`/api/clubs/${id}`),
