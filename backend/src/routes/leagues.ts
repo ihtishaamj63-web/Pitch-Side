@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import type { PoolClient } from 'pg';
 import { computeTable } from '../lib';
 import { pool } from '../db';
@@ -221,60 +222,44 @@ leaguesRouter.post('/leagues/:id/reset', async (req, res) => {
   const leagueId = parseId(req.params.id);
   await withTransaction(async (client) => {
     await lockLeague(client, leagueId);
-    await client.query(
-      `DELETE FROM goals
-       WHERE match_id IN (SELECT id FROM matches WHERE league_id = $1)`,
-      [leagueId],
-    );
-    await client.query(
-      `DELETE FROM yellow_cards
-       WHERE match_id IN (SELECT id FROM matches WHERE league_id = $1)`,
-      [leagueId],
-    );
-    for (const table of ['red_cards', 'fouls', 'substitutions', 'match_team_stats', 'player_match_stats']) {
+    for (const table of ['match_events', 'match_team_stats', 'player_match_stats']) {
       await client.query(
         `DELETE FROM ${table} WHERE match_id IN (SELECT id FROM matches WHERE league_id = $1)`,
         [leagueId],
       );
     }
     await client.query(
-      'UPDATE matches SET home_goals = NULL, away_goals = NULL, home_xg = NULL, away_xg = NULL, played_at = NULL WHERE league_id = $1',
+      `UPDATE matches SET home_goals = NULL, away_goals = NULL, home_xg = NULL,
+         away_xg = NULL, played_at = NULL, status = 'scheduled', kickoff_at = NULL
+       WHERE league_id = $1`,
       [leagueId],
     );
   });
   res.json({ status: 'reset' });
 });
 
-leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
+const playerStatsHandler = async (req: Request<{ id: string }>, res: Response) => {
   const leagueId = parseId(req.params.id);
   const upToMatchday = readMatchday(req.query.upToMatchday);
   await requireLeague(leagueId);
   const result = await pool.query(
-    `WITH goal_totals AS (
-       SELECT g.player_id, COUNT(*)::int AS goals
-       FROM goals g JOIN matches m ON m.id = g.match_id
-       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
-       GROUP BY g.player_id
-     ), assist_totals AS (
-       SELECT g.assist_player_id AS player_id, COUNT(*)::int AS assists
-       FROM goals g JOIN matches m ON m.id = g.match_id
-       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2) AND g.assist_player_id IS NOT NULL
-       GROUP BY g.assist_player_id
-     ), card_totals AS (
-       SELECT yc.player_id, COUNT(*)::int AS yellow_cards
-       FROM yellow_cards yc JOIN matches m ON m.id = yc.match_id
-       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
-       GROUP BY yc.player_id
-     ), red_card_totals AS (
-       SELECT rc.player_id, COUNT(*)::int AS red_cards
-       FROM red_cards rc JOIN matches m ON m.id = rc.match_id
-       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
-       GROUP BY rc.player_id
-     ), foul_totals AS (
-       SELECT f.player_id, COUNT(*)::int AS fouls
-       FROM fouls f JOIN matches m ON m.id = f.match_id
-       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
-       GROUP BY f.player_id
+    `WITH event_people AS (
+       SELECT e.player_id, e.type, m.league_id, m.matchday
+       FROM match_events e JOIN matches m ON m.id = e.match_id
+       UNION ALL
+       SELECT e.secondary_player_id AS player_id, 'assist' AS type, m.league_id, m.matchday
+       FROM match_events e JOIN matches m ON m.id = e.match_id
+       WHERE e.type = 'goal' AND e.secondary_player_id IS NOT NULL
+     ), event_totals AS (
+       SELECT player_id,
+         COUNT(*) FILTER (WHERE type = 'goal')::int AS goals,
+         COUNT(*) FILTER (WHERE type = 'assist')::int AS assists,
+         COUNT(*) FILTER (WHERE type = 'yellow')::int AS yellow_cards,
+         COUNT(*) FILTER (WHERE type = 'red')::int AS red_cards,
+         COUNT(*) FILTER (WHERE type = 'foul')::int AS fouls
+       FROM event_people
+       WHERE league_id = $1 AND ($2::int IS NULL OR matchday <= $2)
+       GROUP BY player_id
      ), performance_totals AS (
        SELECT pms.player_id,
          COUNT(*)::int AS appearances,
@@ -290,11 +275,11 @@ leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
        GROUP BY pms.player_id
      ), totals AS (
        SELECT p.id AS player_id, p.club_id,
-         COALESCE(gt.goals, 0)::int AS goals,
-         COALESCE(at.assists, 0)::int AS assists,
-         COALESCE(ct.yellow_cards, 0)::int AS yellow_cards,
-         COALESCE(rt.red_cards, 0)::int AS red_cards,
-         COALESCE(ft.fouls, 0)::int AS fouls,
+         COALESCE(et.goals, 0)::int AS goals,
+         COALESCE(et.assists, 0)::int AS assists,
+         COALESCE(et.yellow_cards, 0)::int AS yellow_cards,
+         COALESCE(et.red_cards, 0)::int AS red_cards,
+         COALESCE(et.fouls, 0)::int AS fouls,
          COALESCE(pt.appearances, 0)::int AS appearances,
          COALESCE(pt.minutes, 0)::int AS minutes,
          COALESCE(pt.shots, 0)::int AS shots,
@@ -304,16 +289,11 @@ leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
          COALESCE(pt.tackles, 0)::int AS tackles
        FROM players p
        JOIN clubs c ON c.id = p.club_id
-       LEFT JOIN goal_totals gt ON gt.player_id = p.id
-       LEFT JOIN assist_totals at ON at.player_id = p.id
-       LEFT JOIN card_totals ct ON ct.player_id = p.id
-       LEFT JOIN red_card_totals rt ON rt.player_id = p.id
-       LEFT JOIN foul_totals ft ON ft.player_id = p.id
+       LEFT JOIN event_totals et ON et.player_id = p.id
        LEFT JOIN performance_totals pt ON pt.player_id = p.id
        WHERE c.league_id = $1
          AND (
-           pt.player_id IS NOT NULL OR gt.player_id IS NOT NULL OR at.player_id IS NOT NULL
-           OR ct.player_id IS NOT NULL OR rt.player_id IS NOT NULL OR ft.player_id IS NOT NULL
+           pt.player_id IS NOT NULL OR et.player_id IS NOT NULL
          )
      )
      SELECT RANK() OVER (ORDER BY t.goals DESC)::int AS rank,
@@ -328,4 +308,6 @@ leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
     [leagueId, upToMatchday ?? null],
   );
   res.json(result.rows);
-});
+};
+
+leaguesRouter.get(['/leagues/:id/player-stats', '/leagues/:id/scorers'], playerStatsHandler);

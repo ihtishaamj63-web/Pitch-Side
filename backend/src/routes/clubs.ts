@@ -3,6 +3,7 @@ import { computeTable } from '../lib';
 import { pool } from '../db';
 import { ApiError } from '../errors';
 import { parseId } from '../validation';
+import { matchRowSelect } from '../lib/matchRowSelect';
 
 export const clubsRouter = Router();
 
@@ -35,11 +36,7 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
       [row.league_id],
     ),
     pool.query(
-      `SELECT m.id, m.league_id, m.matchday, m.home_club_id, m.away_club_id, m.home_goals, m.away_goals, m.played_at,
-       h.name AS home_name, h.name AS home_club_name, h.short_name AS home_short_name,
-       h.colour_primary AS home_colour_primary, h.colour_secondary AS home_colour_secondary,
-       a.name AS away_name, a.name AS away_club_name, a.short_name AS away_short_name,
-       a.colour_primary AS away_colour_primary, a.colour_secondary AS away_colour_secondary
+      `SELECT ${matchRowSelect}
        FROM matches m
        JOIN clubs h ON h.id = m.home_club_id
        JOIN clubs a ON a.id = m.away_club_id

@@ -64,6 +64,10 @@ export interface Match {
   away_colour_secondary: string;
   home_goals: number | null;
   away_goals: number | null;
+  status?: 'scheduled' | 'live' | 'finished';
+  kickoff_at?: string | null;
+  duration_seconds?: number;
+  scheduled_at?: string | null;
   home_xg?: number | null;
   away_xg?: number | null;
   yellow_card_count?: number;
@@ -82,17 +86,13 @@ export interface MatchGoal {
   minute: number;
 }
 
-export interface MatchYellowCard {
+export interface MatchPersonEvent {
   id: number | string;
   club_id: number | string;
   player_id: number | string;
   player_name: string;
   minute: number;
 }
-
-export type MatchRedCard = MatchYellowCard;
-
-export type MatchFoul = MatchYellowCard;
 
 export interface MatchSubstitution {
   id: number | string;
@@ -136,9 +136,9 @@ export interface MatchPlayerStats {
 
 export interface MatchDetail extends Match {
   goals: MatchGoal[];
-  yellow_cards: MatchYellowCard[];
-  red_cards: MatchRedCard[];
-  fouls: MatchFoul[];
+  yellow_cards: MatchPersonEvent[];
+  red_cards: MatchPersonEvent[];
+  fouls: MatchPersonEvent[];
   substitutions: MatchSubstitution[];
   team_stats: MatchTeamStats[];
   player_stats: MatchPlayerStats[];

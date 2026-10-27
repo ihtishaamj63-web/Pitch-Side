@@ -1,7 +1,8 @@
 import request from 'supertest';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { app } from '../../src/app';
 import { pool } from '../../src/db';
-import { applyMigrations } from '../../src/services/migrations';
 
 const clubNames = [
   'Amberlight', 'Bracken Vale', 'Cinder Reach', 'Duskwater',
@@ -85,6 +86,7 @@ describe('Pitch API', () => {
       red_card_count: expect.any(Number),
     });
     const report = await request(app).get(`/api/matches/${fixtures.body[0].id}`).expect(200);
+    expect(report.body.status).toBe('finished');
     expect(report.body.team_stats).toHaveLength(2);
     expect(report.body.player_stats).toHaveLength(28);
     for (const clubId of [fixtures.body[0].home_club_id, fixtures.body[0].away_club_id]) {
@@ -194,11 +196,11 @@ describe('Pitch API', () => {
     }>(
       `SELECT
         (SELECT COUNT(*)::int FROM matches WHERE league_id = $1 AND home_goals IS NOT NULL) AS played,
-        (SELECT COUNT(*)::int FROM goals g JOIN matches m ON m.id = g.match_id WHERE m.league_id = $1) AS goals,
-        (SELECT COUNT(*)::int FROM yellow_cards yc JOIN matches m ON m.id = yc.match_id WHERE m.league_id = $1) AS yellow_cards,
-        (SELECT COUNT(*)::int FROM red_cards rc JOIN matches m ON m.id = rc.match_id WHERE m.league_id = $1) AS red_cards,
-        (SELECT COUNT(*)::int FROM fouls f JOIN matches m ON m.id = f.match_id WHERE m.league_id = $1) AS fouls,
-        (SELECT COUNT(*)::int FROM substitutions s JOIN matches m ON m.id = s.match_id WHERE m.league_id = $1) AS substitutions,
+        (SELECT COUNT(*)::int FROM match_events e JOIN matches m ON m.id = e.match_id WHERE m.league_id = $1 AND e.type = 'goal') AS goals,
+        (SELECT COUNT(*)::int FROM match_events e JOIN matches m ON m.id = e.match_id WHERE m.league_id = $1 AND e.type = 'yellow') AS yellow_cards,
+        (SELECT COUNT(*)::int FROM match_events e JOIN matches m ON m.id = e.match_id WHERE m.league_id = $1 AND e.type = 'red') AS red_cards,
+        (SELECT COUNT(*)::int FROM match_events e JOIN matches m ON m.id = e.match_id WHERE m.league_id = $1 AND e.type = 'foul') AS fouls,
+        (SELECT COUNT(*)::int FROM match_events e JOIN matches m ON m.id = e.match_id WHERE m.league_id = $1 AND e.type = 'substitution') AS substitutions,
         (SELECT COUNT(*)::int FROM match_team_stats s JOIN matches m ON m.id = s.match_id WHERE m.league_id = $1) AS team_stats,
         (SELECT COUNT(*)::int FROM player_match_stats s JOIN matches m ON m.id = s.match_id WHERE m.league_id = $1) AS player_stats`,
       [leagueId],
@@ -229,6 +231,7 @@ describe('Pitch API', () => {
 
     const match = await request(app).get(`/api/matches/${fixture.id}`).expect(200);
     expect(match.body).toMatchObject({
+      status: 'scheduled',
       home_club_name: fixture.home_club_name,
       away_club_name: fixture.away_club_name,
       home_colour_primary: fixture.home_colour_primary,
@@ -267,8 +270,8 @@ describe('Pitch API', () => {
       [match.rows[0].id],
     );
     await pool.query(
-      `INSERT INTO goals (match_id, club_id, player_id, minute) VALUES
-       ($1, $2, $3, 12), ($1, $4, $5, 44)`,
+      `INSERT INTO match_events (match_id, seq, minute, type, club_id, player_id) VALUES
+       ($1, 1, 12, 'goal', $2, $3), ($1, 2, 44, 'goal', $4, $5)`,
       [
         match.rows[0].id,
         match.rows[0].home_club_id,
@@ -299,19 +302,24 @@ describe('Pitch API', () => {
       [fixture.id],
     );
     await pool.query(
-      'INSERT INTO goals (match_id, club_id, player_id, assist_player_id, minute) VALUES ($1, $2, $3, $4, 24)',
+      `INSERT INTO match_events
+        (match_id, seq, club_id, player_id, secondary_player_id, minute, type)
+       VALUES ($1, 1, $2, $3, $4, 24, 'goal')`,
       [fixture.id, fixture.home_club_id, homePlayers.rows[0].id, homePlayers.rows[1].id],
     );
     await pool.query(
-      'INSERT INTO yellow_cards (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, 51)',
+      `INSERT INTO match_events (match_id, seq, club_id, player_id, minute, type)
+       VALUES ($1, 2, $2, $3, 51, 'yellow')`,
       [fixture.id, fixture.away_club_id, awayPlayers.rows[0].id],
     );
     await pool.query(
-      'INSERT INTO red_cards (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, 72)',
+      `INSERT INTO match_events (match_id, seq, club_id, player_id, minute, type)
+       VALUES ($1, 3, $2, $3, 72, 'red')`,
       [fixture.id, fixture.away_club_id, awayPlayers.rows[0].id],
     );
     await pool.query(
-      'INSERT INTO fouls (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, 66)',
+      `INSERT INTO match_events (match_id, seq, club_id, player_id, minute, type)
+       VALUES ($1, 4, $2, $3, 66, 'foul')`,
       [fixture.id, fixture.away_club_id, awayPlayers.rows[0].id],
     );
     await pool.query(
@@ -368,7 +376,7 @@ describe('Pitch API', () => {
       minute: 24,
     });
 
-    const leaders = await request(app).get(`/api/leagues/${leagueId}/scorers`).expect(200);
+    const leaders = await request(app).get(`/api/leagues/${leagueId}/player-stats`).expect(200);
     expect(leaders.body).toEqual(expect.arrayContaining([
       expect.objectContaining({ player_id: homePlayers.rows[0].id, goals: 1, assists: 0 }),
       expect.objectContaining({ player_id: homePlayers.rows[1].id, goals: 0, assists: 1 }),
@@ -379,38 +387,83 @@ describe('Pitch API', () => {
     ]));
   });
 
-  test('applies pending SQL migrations for a database created with an older schema', async () => {
-    await pool.query('DROP TABLE substitutions, yellow_cards, red_cards, fouls, match_team_stats, player_match_stats');
-    await pool.query('ALTER TABLE goals DROP COLUMN assist_player_id');
-    await pool.query('ALTER TABLE matches DROP COLUMN home_xg, DROP COLUMN away_xg');
-
-    expect(await applyMigrations(pool)).toEqual([
-      '001_match_events.sql',
-      '002_detailed_match_stats.sql',
-      '003_match_lineups.sql',
-    ]);
-    expect(await applyMigrations(pool)).toEqual([]);
-
-    const tables = await pool.query<{ name: string | null }>(
-      `SELECT to_regclass(name)::text AS name
-       FROM unnest(ARRAY['yellow_cards', 'red_cards', 'fouls', 'match_team_stats', 'player_match_stats', 'substitutions']) name`,
+  test('migration 004 preserves all legacy match events in sequence', async () => {
+    const migration = await fs.readFile(
+      path.resolve(__dirname, '../../../sql/migrations/004_match_lifecycle_events.sql'), 'utf8',
     );
-    expect(tables.rows.every((row) => row.name !== null)).toBe(true);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('CREATE SCHEMA migration_fixture');
+      await client.query('SET LOCAL search_path TO migration_fixture');
+      await client.query(`
+        CREATE TABLE clubs (id INTEGER PRIMARY KEY);
+        CREATE TABLE players (id INTEGER PRIMARY KEY, club_id INTEGER NOT NULL REFERENCES clubs(id));
+        CREATE TABLE matches (
+          id INTEGER PRIMARY KEY, home_goals INTEGER, away_goals INTEGER,
+          played_at TIMESTAMPTZ
+        );
+        CREATE TABLE goals (
+          id INTEGER PRIMARY KEY, match_id INTEGER REFERENCES matches(id),
+          club_id INTEGER REFERENCES clubs(id), player_id INTEGER REFERENCES players(id),
+          assist_player_id INTEGER REFERENCES players(id), minute INTEGER
+        );
+        CREATE TABLE yellow_cards (
+          id INTEGER PRIMARY KEY, match_id INTEGER REFERENCES matches(id),
+          club_id INTEGER REFERENCES clubs(id), player_id INTEGER REFERENCES players(id), minute INTEGER
+        );
+        CREATE TABLE red_cards (
+          id INTEGER PRIMARY KEY, match_id INTEGER REFERENCES matches(id),
+          club_id INTEGER REFERENCES clubs(id), player_id INTEGER REFERENCES players(id), minute INTEGER
+        );
+        CREATE TABLE fouls (
+          id INTEGER PRIMARY KEY, match_id INTEGER REFERENCES matches(id),
+          club_id INTEGER REFERENCES clubs(id), player_id INTEGER REFERENCES players(id), minute INTEGER
+        );
+        CREATE TABLE substitutions (
+          id INTEGER PRIMARY KEY, match_id INTEGER REFERENCES matches(id),
+          club_id INTEGER REFERENCES clubs(id), player_off_id INTEGER, player_on_id INTEGER, minute INTEGER
+        );
+        INSERT INTO clubs VALUES (1), (2);
+        INSERT INTO players VALUES (10, 1), (11, 1), (20, 2);
+        INSERT INTO matches VALUES (100, 1, 0, NOW());
+        INSERT INTO goals VALUES (1, 100, 1, 10, 11, 20);
+        INSERT INTO yellow_cards VALUES (1, 100, 2, 20, 40);
+        INSERT INTO red_cards VALUES (1, 100, 2, 20, 70);
+        INSERT INTO fouls VALUES (1, 100, 2, 20, 30);
+        INSERT INTO substitutions VALUES (1, 100, 1, 10, 11, 60);
+      `);
+      await client.query(migration);
+      const migrated = await client.query(
+        `SELECT type, minute, player_id, secondary_player_id
+         FROM match_events WHERE match_id = 100 ORDER BY seq`,
+      );
+      expect(migrated.rows).toEqual([
+        { type: 'goal', minute: 20, player_id: 10, secondary_player_id: 11 },
+        { type: 'foul', minute: 30, player_id: 20, secondary_player_id: null },
+        { type: 'yellow', minute: 40, player_id: 20, secondary_player_id: null },
+        { type: 'substitution', minute: 60, player_id: 11, secondary_player_id: 10 },
+        { type: 'red', minute: 70, player_id: 20, secondary_player_id: null },
+      ]);
+      const lifecycle = await client.query('SELECT status, kickoff_at IS NOT NULL AS has_kickoff FROM matches WHERE id = 100');
+      expect(lifecycle.rows[0]).toEqual({ status: 'finished', has_kickoff: true });
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
 
-    const columns = await pool.query<{ column_name: string }>(
-      `SELECT column_name
-       FROM information_schema.columns
-       WHERE table_schema = 'public' AND (
-         (table_name = 'goals' AND column_name = 'assist_player_id')
-         OR (table_name = 'matches' AND column_name IN ('home_xg', 'away_xg'))
-         OR (table_name = 'player_match_stats' AND column_name = 'is_starter')
-       )`,
+  test('uses one event table and exposes the player-stats route', async () => {
+    const eventTables = await pool.query<{ table_name: string; present: boolean }>(
+      `SELECT name AS table_name, to_regclass(name) IS NOT NULL AS present
+       FROM unnest(ARRAY['match_events', 'goals', 'yellow_cards', 'red_cards', 'fouls', 'substitutions']) name`,
     );
-    expect(columns.rows.map((row) => row.column_name).sort()).toEqual([
-      'assist_player_id',
-      'away_xg',
-      'home_xg',
-      'is_starter',
-    ]);
+    const presence = Object.fromEntries(eventTables.rows.map((row) => [row.table_name, row.present]));
+    expect(presence).toEqual({
+      match_events: true, goals: false, yellow_cards: false,
+      red_cards: false, fouls: false, substitutions: false,
+    });
+    const leagueId = await createLeague();
+    await request(app).get(`/api/leagues/${leagueId}/player-stats`).expect(200);
   });
 });

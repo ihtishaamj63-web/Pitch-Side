@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db';
 import { ApiError } from '../errors';
+import { matchRowSelect } from '../lib/matchRowSelect';
 import { parseId } from '../validation';
 
 export const matchesRouter = Router();
@@ -20,13 +21,7 @@ matchesRouter.get('/leagues/:id/matches', async (req, res) => {
   }
 
   const result = await pool.query(
-    `SELECT m.id, m.matchday, m.home_club_id, m.away_club_id,
-       m.home_goals, m.away_goals, m.played_at,
-       h.name AS home_name, h.name AS home_club_name, h.short_name AS home_short_name,
-       h.colour_primary AS home_colour_primary, h.colour_secondary AS home_colour_secondary,
-       a.name AS away_name, a.name AS away_club_name, a.short_name AS away_short_name,
-       a.colour_primary AS away_colour_primary, a.colour_secondary AS away_colour_secondary,
-       m.home_xg, m.away_xg,
+    `SELECT ${matchRowSelect},
        COALESCE(events.goal_events, '[]'::json) AS goal_events,
        COALESCE(cards.yellow_cards, 0)::int AS yellow_card_count,
        COALESCE(cards.red_cards, 0)::int AS red_card_count
@@ -35,20 +30,20 @@ matchesRouter.get('/leagues/:id/matches', async (req, res) => {
      JOIN clubs a ON a.id = m.away_club_id
      LEFT JOIN LATERAL (
        SELECT json_agg(json_build_object(
-         'club_id', g.club_id,
+         'club_id', e.club_id,
          'player_name', p.name,
          'assist_player_name', ap.name,
-         'minute', g.minute
-       ) ORDER BY g.minute, g.id) AS goal_events
-       FROM goals g
-       JOIN players p ON p.id = g.player_id
-       LEFT JOIN players ap ON ap.id = g.assist_player_id
-       WHERE g.match_id = m.id
+         'minute', e.minute
+       ) ORDER BY e.minute, e.seq) AS goal_events
+       FROM match_events e
+       JOIN players p ON p.id = e.player_id
+       LEFT JOIN players ap ON ap.id = e.secondary_player_id
+       WHERE e.match_id = m.id AND e.type = 'goal'
      ) events ON TRUE
      LEFT JOIN LATERAL (
        SELECT
-         (SELECT COUNT(*) FROM yellow_cards yc WHERE yc.match_id = m.id)::int AS yellow_cards,
-         (SELECT COUNT(*) FROM red_cards rc WHERE rc.match_id = m.id)::int AS red_cards
+         (SELECT COUNT(*) FROM match_events e WHERE e.match_id = m.id AND e.type = 'yellow')::int AS yellow_cards,
+         (SELECT COUNT(*) FROM match_events e WHERE e.match_id = m.id AND e.type = 'red')::int AS red_cards
      ) cards ON TRUE
      WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday = $2)
      ORDER BY m.matchday, m.id`,
@@ -60,13 +55,7 @@ matchesRouter.get('/leagues/:id/matches', async (req, res) => {
 matchesRouter.get('/matches/:id', async (req, res) => {
   const id = parseId(req.params.id);
   const result = await pool.query(
-    `SELECT m.id, m.league_id, m.matchday, m.home_club_id, m.away_club_id,
-       m.home_goals, m.away_goals, m.played_at,
-       m.home_xg, m.away_xg,
-       h.name AS home_name, h.name AS home_club_name, h.short_name AS home_short_name,
-       h.colour_primary AS home_colour_primary, h.colour_secondary AS home_colour_secondary,
-       a.name AS away_name, a.name AS away_club_name, a.short_name AS away_short_name,
-       a.colour_primary AS away_colour_primary, a.colour_secondary AS away_colour_secondary
+    `SELECT ${matchRowSelect}
      FROM matches m
      JOIN clubs h ON h.id = m.home_club_id
      JOIN clubs a ON a.id = m.away_club_id
@@ -76,49 +65,16 @@ matchesRouter.get('/matches/:id', async (req, res) => {
   const match = result.rows[0];
   if (!match) throw new ApiError('Match not found', 404);
 
-  const [goals, yellowCards, redCards, fouls, substitutions, teamStats, playerStats] = await Promise.all([
+  const [events, teamStats, playerStats] = await Promise.all([
     pool.query(
-      `SELECT g.id, g.club_id, g.player_id, p.name AS player_name,
-       g.assist_player_id, ap.name AS assist_player_name, g.minute
-       FROM goals g
-       JOIN players p ON p.id = g.player_id
-       LEFT JOIN players ap ON ap.id = g.assist_player_id
-       WHERE g.match_id = $1
-       ORDER BY g.minute, g.id`,
-      [id],
-    ),
-    pool.query(
-      `SELECT yc.id, yc.club_id, yc.player_id, p.name AS player_name, yc.minute
-       FROM yellow_cards yc
-       JOIN players p ON p.id = yc.player_id
-       WHERE yc.match_id = $1
-       ORDER BY yc.minute, yc.id`,
-      [id],
-    ),
-    pool.query(
-      `SELECT rc.id, rc.club_id, rc.player_id, p.name AS player_name, rc.minute
-       FROM red_cards rc
-       JOIN players p ON p.id = rc.player_id
-       WHERE rc.match_id = $1
-       ORDER BY rc.minute, rc.id`,
-      [id],
-    ),
-    pool.query(
-      `SELECT f.id, f.club_id, f.player_id, p.name AS player_name, f.minute
-       FROM fouls f
-       JOIN players p ON p.id = f.player_id
-       WHERE f.match_id = $1
-       ORDER BY f.minute, f.id`,
-      [id],
-    ),
-    pool.query(
-      `SELECT s.id, s.club_id, s.player_off_id, off.name AS player_off_name,
-         s.player_on_id, on_player.name AS player_on_name, s.minute
-       FROM substitutions s
-       JOIN players off ON off.id = s.player_off_id
-       JOIN players on_player ON on_player.id = s.player_on_id
-       WHERE s.match_id = $1
-       ORDER BY s.minute, s.id`,
+      `SELECT e.id, e.seq, e.type, e.club_id, e.player_id, p.name AS player_name,
+         e.secondary_player_id, secondary.name AS secondary_player_name,
+         e.payload, e.minute, e.minute_extra
+       FROM match_events e
+       LEFT JOIN players p ON p.id = e.player_id
+       LEFT JOIN players secondary ON secondary.id = e.secondary_player_id
+       WHERE e.match_id = $1
+       ORDER BY e.seq`,
       [id],
     ),
     pool.query(
@@ -134,11 +90,11 @@ matchesRouter.get('/matches/:id', async (req, res) => {
       `SELECT pms.club_id, pms.player_id, p.name AS player_name, p.position, pms.is_starter,
          pms.minutes_played, pms.shots, pms.shots_on_target, pms.xg,
          pms.key_passes, pms.tackles,
-         (SELECT COUNT(*)::int FROM goals g WHERE g.match_id = pms.match_id AND g.player_id = pms.player_id) AS goals,
-         (SELECT COUNT(*)::int FROM goals g WHERE g.match_id = pms.match_id AND g.assist_player_id = pms.player_id) AS assists,
-         (SELECT COUNT(*)::int FROM yellow_cards yc WHERE yc.match_id = pms.match_id AND yc.player_id = pms.player_id) AS yellow_cards,
-         (SELECT COUNT(*)::int FROM red_cards rc WHERE rc.match_id = pms.match_id AND rc.player_id = pms.player_id) AS red_cards,
-         (SELECT COUNT(*)::int FROM fouls f WHERE f.match_id = pms.match_id AND f.player_id = pms.player_id) AS fouls
+         (SELECT COUNT(*)::int FROM match_events e WHERE e.match_id = pms.match_id AND e.player_id = pms.player_id AND e.type = 'goal') AS goals,
+         (SELECT COUNT(*)::int FROM match_events e WHERE e.match_id = pms.match_id AND e.secondary_player_id = pms.player_id AND e.type = 'goal') AS assists,
+         (SELECT COUNT(*)::int FROM match_events e WHERE e.match_id = pms.match_id AND e.player_id = pms.player_id AND e.type = 'yellow') AS yellow_cards,
+         (SELECT COUNT(*)::int FROM match_events e WHERE e.match_id = pms.match_id AND e.player_id = pms.player_id AND e.type = 'red') AS red_cards,
+         (SELECT COUNT(*)::int FROM match_events e WHERE e.match_id = pms.match_id AND e.player_id = pms.player_id AND e.type = 'foul') AS fouls
        FROM player_match_stats pms
        JOIN players p ON p.id = pms.player_id
        WHERE pms.match_id = $1
@@ -146,13 +102,26 @@ matchesRouter.get('/matches/:id', async (req, res) => {
       [id],
     ),
   ]);
+  const goals = events.rows.filter((event) => event.type === 'goal').map((event) => ({
+    id: event.id, club_id: event.club_id, player_id: event.player_id, player_name: event.player_name,
+    assist_player_id: event.secondary_player_id, assist_player_name: event.secondary_player_name,
+    minute: event.minute, minute_extra: event.minute_extra,
+  }));
+  const yellowCards = events.rows.filter((event) => event.type === 'yellow').map((event) => event);
+  const redCards = events.rows.filter((event) => event.type === 'red').map((event) => event);
+  const fouls = events.rows.filter((event) => event.type === 'foul').map((event) => event);
+  const substitutions = events.rows.filter((event) => event.type === 'substitution').map((event) => ({
+    id: event.id, club_id: event.club_id, player_on_id: event.player_id,
+    player_on_name: event.player_name, player_off_id: event.secondary_player_id,
+    player_off_name: event.secondary_player_name, minute: event.minute,
+  }));
   res.json({
     ...match,
-    goals: goals.rows,
-    yellow_cards: yellowCards.rows,
-    red_cards: redCards.rows,
-    fouls: fouls.rows,
-    substitutions: substitutions.rows,
+    goals,
+    yellow_cards: yellowCards,
+    red_cards: redCards,
+    fouls,
+    substitutions,
     team_stats: teamStats.rows,
     player_stats: playerStats.rows,
   });

@@ -77,34 +77,42 @@ export async function simulateMatchday(
 
     await client.query(
       `UPDATE matches
-       SET home_goals = $1, away_goals = $2, home_xg = $3, away_xg = $4, played_at = NOW()
+       SET home_goals = $1, away_goals = $2, home_xg = $3, away_xg = $4,
+         played_at = NOW(), status = 'finished', kickoff_at = COALESCE(kickoff_at, NOW())
        WHERE id = $5`,
       [result.homeGoals, result.awayGoals, result.expectedGoals.home, result.expectedGoals.away, match.id],
     );
 
-    for (const event of result.scorers) {
+    const matchEvents = [
+      ...result.scorers.map((event) => ({
+        minute: event.minute, type: 'goal', clubId: event.clubId, playerId: event.playerId,
+        secondaryPlayerId: event.assistPlayerId, payload: { assist_player_id: event.assistPlayerId },
+      })),
+      ...result.yellowCards.map((event) => ({
+        minute: event.minute, type: 'yellow', clubId: event.clubId, playerId: event.playerId,
+        secondaryPlayerId: null, payload: {},
+      })),
+      ...result.redCards.map((event) => ({
+        minute: event.minute, type: 'red', clubId: event.clubId, playerId: event.playerId,
+        secondaryPlayerId: null, payload: {},
+      })),
+      ...result.fouls.map((event) => ({
+        minute: event.minute, type: 'foul', clubId: event.clubId, playerId: event.playerId,
+        secondaryPlayerId: null, payload: {},
+      })),
+      ...result.substitutions.map((event) => ({
+        minute: event.minute, type: 'substitution', clubId: event.clubId, playerId: event.playerOnId,
+        secondaryPlayerId: event.playerOffId,
+        payload: { player_on_id: event.playerOnId, player_off_id: event.playerOffId },
+      })),
+    ].sort((left, right) => left.minute - right.minute || left.type.localeCompare(right.type));
+    for (const [index, event] of matchEvents.entries()) {
       await client.query(
-        `INSERT INTO goals (match_id, club_id, player_id, assist_player_id, minute)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [match.id, event.clubId, event.playerId, event.assistPlayerId, event.minute],
-      );
-    }
-    for (const event of result.yellowCards) {
-      await client.query(
-        'INSERT INTO yellow_cards (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, $4)',
-        [match.id, event.clubId, event.playerId, event.minute],
-      );
-    }
-    for (const event of result.redCards) {
-      await client.query(
-        'INSERT INTO red_cards (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, $4)',
-        [match.id, event.clubId, event.playerId, event.minute],
-      );
-    }
-    for (const event of result.fouls) {
-      await client.query(
-        'INSERT INTO fouls (match_id, club_id, player_id, minute) VALUES ($1, $2, $3, $4)',
-        [match.id, event.clubId, event.playerId, event.minute],
+        `INSERT INTO match_events
+          (match_id, seq, minute, type, club_id, player_id, secondary_player_id, payload)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [match.id, index + 1, event.minute, event.type, event.clubId, event.playerId,
+          event.secondaryPlayerId, JSON.stringify(event.payload)],
       );
     }
     for (const stats of result.teamStats) {
@@ -129,14 +137,6 @@ export async function simulateMatchday(
         ],
       );
     }
-    for (const substitution of result.substitutions) {
-      await client.query(
-        `INSERT INTO substitutions (match_id, club_id, player_off_id, player_on_id, minute)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [match.id, substitution.clubId, substitution.playerOffId, substitution.playerOnId, substitution.minute],
-      );
-    }
-
     if (managerChoices && (homeIsManager || awayIsManager)) {
       const isHome = homeIsManager;
       managerMatch = {

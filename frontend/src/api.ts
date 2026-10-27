@@ -87,7 +87,7 @@ export const api = {
     request<Match[]>(`/api/leagues/${id}/matches${matchday ? `?matchday=${matchday}` : ''}`),
   match: (id: number | string) => request<MatchDetail>(`/api/matches/${id}`),
   playerStats: (id: number | string, upToMatchday?: number) =>
-    request<PlayerStat[]>(`/api/leagues/${id}/scorers${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
+    request<PlayerStat[]>(`/api/leagues/${id}/player-stats${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
   simulate: (id: number | string, action: 'next' | 'all') =>
     request<{ matchday?: number; matchdaysPlayed?: number; matchesPlayed?: number }>(`/api/leagues/${id}/simulate/${action}`, json()),
   simulateWithManager: (id: number | string, clubId: number, tactics: Tactics) =>
