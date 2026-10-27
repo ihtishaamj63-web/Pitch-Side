@@ -3,7 +3,8 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { api, readableError } from './api';
 import { ClubCrest } from './Crest';
-import type { Club, ClubDetail, LeagueDetail, LeagueSummary, ManagerMatchSummary, Match, MatchDetail, PlayerStat, Standing, Tactics } from './types';
+import type { Club, ClubDetail, LeagueDetail, LeagueSummary, ManagerMatchSummary, ManagerState, Match, MatchDetail, MatchPlayerStats, PlayerStat, Standing, Tactics } from './types';
+import { appendManagerMatch, generateHeadline, managerMatchRating } from './manager';
 import './App.css';
 
 const footerUrl = import.meta.env.VITE_PORTFOLIO_URL;
@@ -12,7 +13,17 @@ const tabs = [
   ['fixtures', 'Fixtures'],
   ['match-centre', 'Match centre'],
   ['scorers', 'League leaders'],
+  ['awards', 'Awards'],
 ] as const;
+
+const emptyManagerState: ManagerState = { currentStreak: 0, bestStreak: 0, averageRating: 0, matchesManaged: 0 };
+
+interface MatchPlayback {
+  match: MatchDetail;
+  minute: number;
+  complete: boolean;
+  headline: string;
+}
 
 function App() {
   return <BrowserRouter><AppContent /></BrowserRouter>;
@@ -185,11 +196,17 @@ function LeaguePage() {
   const [managerTactics, setManagerTactics] = useState<Tactics>(savedManager.tactics);
   const [managerMatch, setManagerMatch] = useState<ManagerMatchSummary | null>(null);
   const [managerBye, setManagerBye] = useState<number | null>(null);
+  const [managerState, setManagerState] = useState<ManagerState>(savedManager.managerState);
+  const [upcomingMatches, setUpcomingMatches] = useState<Match[]>([]);
+  const [matchPlayback, setMatchPlayback] = useState<MatchPlayback | null>(null);
+  const [simulationBusy, setSimulationBusy] = useState(false);
+  const playbackMatchId = matchPlayback?.match.id;
+  const playbackComplete = matchPlayback?.complete;
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.league(leagueId), api.table(leagueId)])
-      .then(([league, table]) => {
+    Promise.all([api.league(leagueId), api.table(leagueId), api.matches(leagueId)])
+      .then(([league, table, matches]) => {
         if (cancelled) return;
         if (savedManager.clubId !== null && !league.clubs.some(club => Number(club.id) === savedManager.clubId)) {
           clearManagerClubId(leagueId);
@@ -199,27 +216,63 @@ function LeaguePage() {
         }
         setDetail(league);
         setStandings(table);
+        setUpcomingMatches(matches);
       })
       .catch(err => { if (!cancelled) setError(readableError(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [leagueId, refreshKey, savedManager]);
 
+  useEffect(() => {
+    if (playbackMatchId === undefined || playbackComplete) return;
+    const timer = window.setInterval(() => {
+      setMatchPlayback(current => {
+        if (!current) return null;
+        const minute = Math.min(90, current.minute + 1);
+        return { ...current, minute, complete: minute === 90 };
+      });
+    }, 125);
+    return () => window.clearInterval(timer);
+  }, [playbackMatchId, playbackComplete]);
+
   const runSimulation = async (action: 'next' | 'all' | 'reset') => {
+    if (simulationBusy) return;
+    setSimulationBusy(true);
     try {
       if (action === 'reset') {
         await api.resetLeague(leagueId);
         setManagerMatch(null);
         setManagerBye(null);
+        setMatchPlayback(null);
+        setManagerState(emptyManagerState);
+        saveManagerState(leagueId, emptyManagerState);
       } else if (action === 'next' && managerClubId !== null) {
         const result = await api.simulateWithManager(leagueId, managerClubId, managerTactics);
-        setManagerMatch(result.managerMatch);
-        setManagerBye(result.managerMatch ? null : result.matchday);
+        if (result.managerMatch) {
+          const match = await api.match(result.managerMatch.matchId);
+          const lastGoal = match.goals[match.goals.length - 1];
+          const enrichedMatch = { ...result.managerMatch, lastGoalMinute: lastGoal?.minute };
+          const nextState = appendManagerMatch(managerState, enrichedMatch);
+          setManagerMatch(enrichedMatch);
+          setManagerState(nextState);
+          saveManagerState(leagueId, nextState);
+          setManagerBye(null);
+          setMatchPlayback({
+            match,
+            minute: 0,
+            complete: false,
+            headline: generateHeadline(enrichedMatch, detail?.clubs ?? []),
+          });
+        } else {
+          setManagerMatch(null);
+          setManagerBye(result.matchday);
+        }
       } else {
         await api.simulate(leagueId, action);
       }
       setRefreshKey(key => key + 1);
     } catch (err) { setError(readableError(err)); }
+    finally { setSimulationBusy(false); }
   };
 
   const startManaging = () => {
@@ -232,6 +285,9 @@ function LeaguePage() {
       setPendingManagerClubId(null);
       setManagerMatch(null);
       setManagerBye(null);
+      setMatchPlayback(null);
+      setManagerState(emptyManagerState);
+      saveManagerState(leagueId, emptyManagerState);
       setError('');
     } catch (err) {
       setError(readableError(err));
@@ -244,6 +300,7 @@ function LeaguePage() {
       setManagerClubId(null);
       setManagerMatch(null);
       setManagerBye(null);
+      setMatchPlayback(null);
     } catch (err) {
       setError(readableError(err));
     }
@@ -260,6 +317,13 @@ function LeaguePage() {
     : detail.progress.total_matches ?? detail.progress.total ?? league.total_matches ?? 0;
   const progressPercent = totalMatches ? Math.round(playedMatches / totalMatches * 100) : typeof detail.progress === 'object' ? detail.progress.percentage ?? 0 : 0;
   const managedClub = detail.clubs.find(club => Number(club.id) === managerClubId);
+  const nextManagerMatch = upcomingMatches.find(match =>
+    match.played_at === null && [match.home_club_id, match.away_club_id].some(id => Number(id) === managerClubId),
+  );
+  const nextOpponentId = nextManagerMatch
+    ? Number(nextManagerMatch.home_club_id) === managerClubId ? nextManagerMatch.away_club_id : nextManagerMatch.home_club_id
+    : null;
+  const nextOpponent = detail.clubs.find(club => String(club.id) === String(nextOpponentId));
   return <PageMotion>
     <BackLink to="/" label="All leagues" />
     <section className="league-masthead">
@@ -272,16 +336,25 @@ function LeaguePage() {
       {tabs.map(([id, label]) => <Link key={id} to={`/leagues/${leagueId}/${id}`} className={`league-tab${currentTab === id ? ' is-active' : ''}`}>{label}</Link>)}
     </nav>
     <div className="simulation-actions">
-      <button className="button button-secondary button-small" onClick={() => void runSimulation('next')}>{managerClubId === null ? 'Simulate next' : 'Next matchday'} <span>▶</span></button>
-      {managerClubId === null && <button className="button button-quiet button-small" onClick={() => void runSimulation('all')}>Simulate all</button>}
-      <button className="button button-quiet button-small" onClick={() => void runSimulation('reset')}>Reset</button>
-      {managerClubId === null && <button className="button button-quiet button-small" onClick={() => { setPendingManagerClubId(null); setManagerPickerOpen(true); }}>Choose your team</button>}
+      <button className="button button-secondary button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('next')}>{simulationBusy ? 'Simulating…' : managerClubId === null ? 'Simulate next' : 'Next matchday'} <span>▶</span></button>
+      {managerClubId === null && <button className="button button-quiet button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('all')}>Simulate all</button>}
+      <button className="button button-quiet button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('reset')}>Reset</button>
+      {managerClubId === null && <button className="button button-quiet button-small" disabled={!!matchPlayback} onClick={() => { setPendingManagerClubId(null); setManagerPickerOpen(true); }}>Choose your team</button>}
     </div></div>
     {managerClubId !== null && managedClub && <section className="manager-panel" aria-label="Manager controls">
       <div className="manager-team">
         <ClubCrest club={managedClub} size="small" />
         <div><div className="eyebrow">YOUR TEAM</div><strong>{managedClub.name}</strong><small>Attack {managedClub.attack} · Defence {managedClub.defence}</small></div>
       </div>
+      <div className="manager-streak">
+        <span>SEASON AVG <strong>{managerState.matchesManaged ? managerState.averageRating.toFixed(1) : '—'}</strong></span>
+        <span>🔥 {managerState.currentStreak} <small>Best: {managerState.bestStreak}</small></span>
+      </div>
+      {nextManagerMatch && nextOpponent && <div className="manager-next-match">
+        <span>NEXT UP</span>
+        <strong>{String(nextManagerMatch.home_club_id) === String(managedClub.id) ? 'vs' : '@'} {nextOpponent.name}</strong>
+        <OpponentStrengthBadge yourClub={managedClub} opponent={nextOpponent} />
+      </div>}
       <label className="manager-tactics">TACTICS
         <select value={managerTactics} onChange={event => {
           const value = event.target.value;
@@ -308,7 +381,8 @@ function LeaguePage() {
     {managerMatch && managedClub && <div className="manager-result" role="status">
       <strong>Matchday {managerMatch.matchday}</strong>
       <span>{managedClub.name} {managerMatch.goalsFor}–{managerMatch.goalsAgainst}</span>
-      <span>{managerMatch.tactics} · xG {managerMatch.expectedGoalsFor.toFixed(2)}–{managerMatch.expectedGoalsAgainst.toFixed(2)}</span>
+      <span>{managerMatch.tactics} · xG {managerMatch.expectedGoalsFor.toFixed(2)}–{managerMatch.expectedGoalsAgainst.toFixed(2)} · Rating {managerMatchRating(managerMatch).toFixed(1)}</span>
+      <span className="manager-headline">{matchPlayback?.headline ?? (managerMatch.goalsFor === 0 && managerMatch.goalsAgainst === 0 ? 'A point apiece. Nobody fancied the goal.' : generateHeadline(managerMatch, detail.clubs))}</span>
     </div>}
     {managerBye !== null && <div className="manager-result" role="status">Your team had no fixture on matchday {managerBye}.</div>}
     {managerPickerOpen && <section className="manager-picker" aria-labelledby="manager-picker-title">
@@ -324,7 +398,8 @@ function LeaguePage() {
       <button type="button" className="button button-primary" disabled={pendingManagerClubId === null} onClick={startManaging}>Manage selected team <span aria-hidden="true">↗</span></button>
     </section>}
     {error && <ErrorNotice message={error} onRetry={() => { setError(''); setRefreshKey(k => k + 1); }} />}
-    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={Number(searchParams.get('matchday')) || 1} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} refreshKey={refreshKey} />}
+    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={Number(searchParams.get('matchday')) || 1} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} refreshKey={refreshKey} seasonComplete={playedMatches === totalMatches && totalMatches > 0} />}
+    {matchPlayback && <MatchdayPlayback playback={matchPlayback} onClose={() => setMatchPlayback(null)} onFastForward={() => setMatchPlayback(current => current ? { ...current, minute: 90, complete: true } : null)} />}
   </PageMotion>;
 }
 
@@ -336,6 +411,30 @@ function managerTacticsStorageKey(leagueId: number | string) {
   return `pitch:manager-tactics:${leagueId}`;
 }
 
+function managerStateStorageKey(leagueId: number | string) {
+  return `pitch:manager-state:${leagueId}`;
+}
+
+function readManagerState(leagueId: number | string): ManagerState {
+  const stored = window.localStorage.getItem(managerStateStorageKey(leagueId));
+  if (!stored) return emptyManagerState;
+  const value: unknown = JSON.parse(stored);
+  if (
+    !value || typeof value !== 'object'
+    || !('currentStreak' in value) || typeof value.currentStreak !== 'number' || !Number.isInteger(value.currentStreak) || value.currentStreak < 0
+    || !('bestStreak' in value) || typeof value.bestStreak !== 'number' || !Number.isInteger(value.bestStreak) || value.bestStreak < value.currentStreak
+    || !('averageRating' in value) || typeof value.averageRating !== 'number' || !Number.isFinite(value.averageRating)
+    || !('matchesManaged' in value) || typeof value.matchesManaged !== 'number' || !Number.isInteger(value.matchesManaged) || value.matchesManaged < 0
+  ) {
+    throw new Error('The saved manager record is invalid. Reset the season to start a new record.');
+  }
+  return value as ManagerState;
+}
+
+function saveManagerState(leagueId: number | string, state: ManagerState) {
+  window.localStorage.setItem(managerStateStorageKey(leagueId), JSON.stringify(state));
+}
+
 function readManagerClubId(leagueId: number | string): number | null {
   const stored = window.localStorage.getItem(managerStorageKey(leagueId));
   if (stored === null) return null;
@@ -345,16 +444,17 @@ function readManagerClubId(leagueId: number | string): number | null {
   return Number(stored);
 }
 
-function readManagerSelection(leagueId: number | string): { clubId: number | null; tactics: Tactics; error: string } {
+function readManagerSelection(leagueId: number | string): { clubId: number | null; tactics: Tactics; managerState: ManagerState; error: string } {
   try {
     const clubId = readManagerClubId(leagueId);
     const storedTactics = clubId === null ? null : window.localStorage.getItem(managerTacticsStorageKey(leagueId));
     if (storedTactics !== null && !isTactics(storedTactics)) {
       throw new Error('The saved tactics are invalid. Choose your tactics again.');
     }
-    return { clubId, tactics: storedTactics ?? 'balanced', error: '' };
+    const managerState = readManagerState(leagueId);
+    return { clubId, tactics: storedTactics ?? 'balanced', managerState, error: '' };
   } catch (err) {
-    return { clubId: null, tactics: 'balanced', error: readableError(err) };
+    return { clubId: null, tactics: 'balanced', managerState: emptyManagerState, error: readableError(err) };
   }
 }
 
@@ -370,17 +470,106 @@ function saveManagerTactics(leagueId: number | string, tactics: Tactics) {
 function clearManagerClubId(leagueId: number | string) {
   window.localStorage.removeItem(managerStorageKey(leagueId));
   window.localStorage.removeItem(managerTacticsStorageKey(leagueId));
+  window.localStorage.removeItem(managerStateStorageKey(leagueId));
 }
 
 function isTactics(value: string): value is Tactics {
   return value === 'attacking' || value === 'balanced' || value === 'defensive';
 }
 
-function LeagueTab({ tab, leagueId, clubs, standings, matchday, topZone, bottomZone, refreshKey }: { tab: string; leagueId: string; clubs: Club[]; standings: Standing[]; matchday: number; topZone: number; bottomZone: number; refreshKey: number }) {
+function LeagueTab({ tab, leagueId, clubs, standings, matchday, topZone, bottomZone, refreshKey, seasonComplete }: { tab: string; leagueId: string; clubs: Club[]; standings: Standing[]; matchday: number; topZone: number; bottomZone: number; refreshKey: number; seasonComplete: boolean }) {
   if (tab === 'fixtures') return <FixturesTab key={refreshKey} leagueId={leagueId} initialMatchday={matchday} totalMatchdays={clubs.length % 2 === 0 ? 2 * (clubs.length - 1) : 2 * clubs.length} />;
   if (tab === 'match-centre') return <MatchCentreTab key={refreshKey} leagueId={leagueId} />;
   if (tab === 'scorers') return <ScorersTab key={refreshKey} leagueId={leagueId} />;
+  if (tab === 'awards') return <AwardsTab key={refreshKey} leagueId={leagueId} seasonComplete={seasonComplete} />;
   return <TableTab standings={standings} topZone={topZone} bottomZone={bottomZone} />;
+}
+
+function OpponentStrengthBadge({ yourClub, opponent }: { yourClub: Club; opponent: Club }) {
+  const yourRating = ((yourClub.attack ?? 0) + (yourClub.defence ?? 0)) / 2;
+  const opponentRating = ((opponent.attack ?? 0) + (opponent.defence ?? 0)) / 2;
+  const status = opponentRating < yourRating - 5 ? 'Underdog' : opponentRating > yourRating + 5 ? 'Tough test' : 'Even';
+  return <span className={`opponent-strength opponent-strength--${status.toLowerCase().replace(' ', '-')}`}><i />{status}</span>;
+}
+
+type MatchEventType = 'goal' | 'yellow' | 'red' | 'foul';
+type MatchEvent = {
+  id: number | string;
+  club_id: number | string;
+  player_name: string;
+  minute: number;
+  eventType: MatchEventType;
+  assist_player_name?: string | null;
+};
+
+function getMatchEvents(match: MatchDetail): MatchEvent[] {
+  return [
+    ...match.goals.map(goal => ({ ...goal, eventType: 'goal' as const })),
+    ...match.yellow_cards.map(card => ({ ...card, eventType: 'yellow' as const })),
+    ...match.red_cards.map(card => ({ ...card, eventType: 'red' as const })),
+    ...match.fouls.map(foul => ({ ...foul, eventType: 'foul' as const })),
+  ].sort((left, right) => left.minute - right.minute);
+}
+
+function eventLabel(event: MatchEvent): string {
+  if (event.eventType === 'goal') return event.assist_player_name ? `GOAL · ASSIST: ${event.assist_player_name}` : 'GOAL · UNASSISTED';
+  if (event.eventType === 'yellow') return 'YELLOW CARD';
+  if (event.eventType === 'red') return 'RED CARD';
+  return 'FOUL';
+}
+
+function matchPlayerScore(player: MatchPlayerStats): number {
+  return player.goals * 4 + player.assists * 3 + player.shots_on_target * 0.5
+    + player.key_passes * 0.25 + player.tackles * 0.1 - player.yellow_cards * 0.35 - player.red_cards;
+}
+
+function getManOfTheMatch(players: MatchPlayerStats[]): MatchPlayerStats | undefined {
+  return [...players].sort((a, b) =>
+    matchPlayerScore(b) - matchPlayerScore(a)
+    || b.minutes_played - a.minutes_played
+    || a.player_name.localeCompare(b.player_name),
+  )[0];
+}
+
+function MatchdayPlayback({ playback, onClose, onFastForward }: { playback: MatchPlayback; onClose: () => void; onFastForward: () => void }) {
+  const { match, minute, complete } = playback;
+  const allEvents = getMatchEvents(match);
+  const visibleEvents = allEvents.filter(event => event.minute <= minute);
+  const goalsSoFar = visibleEvents.filter(event => event.eventType === 'goal');
+  const homeScore = goalsSoFar.filter(event => String(event.club_id) === String(match.home_club_id)).length;
+  const awayScore = goalsSoFar.filter(event => String(event.club_id) === String(match.away_club_id)).length;
+  const latestEvent = visibleEvents[visibleEvents.length - 1];
+  const scenes = ['kickoff.jpg', 'fans.jpg', 'corner.jpg', 'ballinnet.jpg', 'referee.jpg', 'goalkeeper.jpg', 'empty-stadium.jpg', 'motm.jpg'];
+  const scene = complete ? scenes[scenes.length - 1] : scenes[Math.min(scenes.length - 2, Math.floor(minute / 13))];
+  const manOfTheMatch = complete ? getManOfTheMatch(match.player_stats) : undefined;
+  const homeStats = match.team_stats.find(stats => String(stats.club_id) === String(match.home_club_id));
+  const awayStats = match.team_stats.find(stats => String(stats.club_id) === String(match.away_club_id));
+
+  return <div className="matchday-overlay" role="dialog" aria-modal="true" aria-labelledby="matchday-live-title">
+    <section className="matchday-live">
+      <header className="matchday-live-header" style={{ backgroundImage: `linear-gradient(90deg, rgba(7, 13, 19, .9), rgba(7, 13, 19, .48)), url('/matchday/${scene}')` }}>
+        <div><div className="eyebrow">{complete ? 'FULL TIME' : 'MATCHDAY LIVE'}</div><h2 id="matchday-live-title">{match.home_club_name} <span>v</span> {match.away_club_name}</h2></div>
+        <div className="matchday-live-score" aria-live="polite">{homeScore}<span>:</span>{awayScore}</div>
+      </header>
+      <div className="matchday-progress-meta"><span>{complete ? 'FULL TIME' : 'MATCH IN PROGRESS'}</span><strong>{minute}&apos; <small>/ 90&apos;</small></strong></div>
+      <div className="matchday-progress" role="progressbar" aria-label="Match minute" aria-valuemin={0} aria-valuemax={90} aria-valuenow={minute}><span style={{ width: `${minute / 90 * 100}%` }} /></div>
+      <div className="matchday-live-feed" aria-live="polite">
+        {visibleEvents.length ? [...visibleEvents].reverse().map(event => <div key={`${event.eventType}-${event.id}`} className={`live-event live-event--${event.eventType}`}>
+          <b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{eventLabel(event)}</small></span><i>{event.eventType === 'goal' ? '⚽' : event.eventType === 'yellow' ? '🟨' : event.eventType === 'red' ? '🟥' : '⚑'}</i>
+        </div>) : <p className="live-commentary">{minute < 20 ? 'The teams are feeling each other out. No clear chances yet.' : 'A cagey contest so far. The crowd is waiting for a breakthrough.'}</p>}
+        {!complete && latestEvent && <p className="live-commentary">{latestEvent.eventType === 'goal' ? `GOAL! ${latestEvent.player_name}${latestEvent.assist_player_name ? ` finishes a move created by ${latestEvent.assist_player_name}` : ' finds the net'}.` : latestEvent.eventType === 'yellow' ? `${latestEvent.player_name} is booked.` : latestEvent.eventType === 'red' ? `${latestEvent.player_name} is sent off.` : `${latestEvent.player_name} gives away a foul.`}</p>}
+      </div>
+      {complete && <div className="live-fulltime">
+        <p>{playback.headline}</p>
+        {manOfTheMatch && <div className="live-motm"><img src="/matchday/motm.jpg" alt="" /><span><small>PLAYER OF THE MATCH</small><strong>{manOfTheMatch.player_name}</strong></span></div>}
+        {homeStats && awayStats && <div className="live-fulltime-stats"><span>Shots <b>{homeStats.shots}–{awayStats.shots}</b></span><span>Corners <b>{homeStats.corners}–{awayStats.corners}</b></span><span>Saves <b>{homeStats.saves}–{awayStats.saves}</b></span></div>}
+      </div>}
+      <footer className="matchday-live-actions">
+        {!complete && <button className="button button-quiet button-small" onClick={onFastForward}>Skip to full-time</button>}
+        {complete && <button className="button button-primary button-small" onClick={onClose}>Close match report</button>}
+      </footer>
+    </section>
+  </div>;
 }
 
 function SectionTitle({ kicker, title, detail }: { kicker: string; title: string; detail: string }) {
@@ -425,7 +614,7 @@ function TableTab({ standings, topZone, bottomZone }: { standings: Standing[]; t
         const clubId = row.club_id || row.id;
         const club = { id: clubId, name: row.club_name || row.name, short_name: row.short_name, colour_primary: row.colour_primary, colour_secondary: row.colour_secondary };
         return <motion.tr layout={!reduceMotion} key={clubId} className={index < topZone ? 'zone-top' : index >= standings.length - bottomZone ? 'zone-bottom' : ''}>
-          <td className="position-cell"><span>{row.position || index + 1}</span></td><td><Link className="table-club" to={`/clubs/${clubId}`}><ClubCrest club={club} size="small" /><strong>{club.name}</strong><span className="club-code">{club.short_name}</span></Link></td>
+          <td className="position-cell"><span>{row.position || index + 1}</span></td><td><Link className="table-club" to={`/clubs/${clubId}`}><ClubCrest club={club} size="small" /><strong>{club.name}</strong>{index === 0 && <span className="table-trophy" role="img" aria-label="League leader" title="League leader">🏆</span>}<span className="club-code">{club.short_name}</span></Link></td>
           {statCell(row, 'P')}{statCell(row, 'W')}{statCell(row, 'D')}{statCell(row, 'L')}{statCell(row, 'GF')}{statCell(row, 'GA')}{statCell(row, 'GD')}{statCell(row, 'Pts')}<td><FormDots form={row.form} /></td>
         </motion.tr>;
       })}</tbody></table></div> : <EmptyPanel title="The table is waiting" text="Simulate a matchday to bring your standings to life." />}
@@ -490,11 +679,13 @@ function MatchCentreTab({ leagueId }: { leagueId: string }) {
   const teamStat = (clubId: number | string) => match?.team_stats?.find(stat => String(stat.club_id) === String(clubId));
   const homeStats = match ? teamStat(match.home_club_id) : undefined;
   const awayStats = match ? teamStat(match.away_club_id) : undefined;
+  const manOfTheMatch = match ? getManOfTheMatch(match.player_stats) : undefined;
   return <section className="tab-panel"><SectionTitle kicker="UNDER THE LIGHTS" title="Match centre" detail="The moments that make the match." />
     {error && <ErrorNotice message={error} />}
     <label className="match-picker">CHOOSE A FIXTURE<select value={selected} onChange={e => setSelected(e.target.value)}>{matches.map(game => <option key={game.id} value={game.id}>{game.home_club_name} {game.home_goals ?? '–'} : {game.away_goals ?? '–'} {game.away_club_name}</option>)}</select></label>
     {match ? <div className="match-report">
       <div className="report-scoreboard"><span className="report-round">MATCHDAY {match.matchday}</span><div className="report-teams"><ReportTeam name={match.home_club_name} id={match.home_club_id} shortName={match.home_short_name} primary={match.home_colour_primary} secondary={match.home_colour_secondary} /><div className="report-score">{match.home_goals ?? '–'}<span>:</span>{match.away_goals ?? '–'}</div><ReportTeam name={match.away_club_name} id={match.away_club_id} shortName={match.away_short_name} primary={match.away_colour_primary} secondary={match.away_colour_secondary} /></div><span className="report-date">{match.played_at ? new Date(match.played_at).toLocaleString() : 'KICK-OFF PENDING'}</span></div>
+      {manOfTheMatch && <div className="report-motm"><img src="/matchday/motm.jpg" alt="" /><span><small>MAN OF THE MATCH</small><strong>{manOfTheMatch.player_name}</strong><em>{manOfTheMatch.goals} goals · {manOfTheMatch.assists} assists · {manOfTheMatch.key_passes} key passes</em></span></div>}
       <div className="timeline"><div className="timeline-column">{homeEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : 'FOUL'}</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : 'FOUL'}</small></span></div>)}</div></div>
       {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
       {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
@@ -538,6 +729,39 @@ function ScorersTab({ leagueId }: { leagueId: string }) {
       const maximum = Number(rows[0]?.[key]) || 1;
       return <section className="leaderboard-panel" key={key}><h3>{label}</h3>{rows.length ? rows.map((player, index) => <Link to={`/clubs/${player.club_id}`} className="leaderboard-row" key={player.player_id}><span className="scorer-rank">{String(index + 1).padStart(2, '0')}</span><span className="leaderboard-player"><strong>{player.player_name}</strong><small>{player.club_name} · {player.short_name}</small></span><span className="leaderboard-bar"><i style={{ width: `${Math.max(8, Number(player[key]) / maximum * 100)}%` }} /></span><strong className="scorer-goals">{key === 'xg' ? Number(player[key]).toFixed(2) : player[key]}<small>{suffix}</small></strong></Link>) : <p className="leaderboard-empty">No {label.toLowerCase()} recorded.</p>}</section>;
     })}</div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to record goals, assists and yellow cards." />}
+  </section>;
+}
+
+function seasonPlayerScore(player: PlayerStat): number {
+  return player.goals * 4 + player.assists * 3 + player.key_passes * 0.15
+    + player.tackles * 0.08 + player.minutes / 1000 - player.red_cards * 1.5 - player.yellow_cards * 0.2;
+}
+
+function AwardsTab({ leagueId, seasonComplete }: { leagueId: string; seasonComplete: boolean }) {
+  const [players, setPlayers] = useState<PlayerStat[]>([]);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    api.playerStats(leagueId)
+      .then(data => { if (!cancelled) setPlayers(data); })
+      .catch(err => { if (!cancelled) setError(readableError(err)); });
+    return () => { cancelled = true; };
+  }, [leagueId]);
+
+  const rankedPlayers = [...players].sort((a, b) =>
+    seasonPlayerScore(b) - seasonPlayerScore(a)
+    || b.goals - a.goals
+    || b.assists - a.assists
+    || a.player_name.localeCompare(b.player_name),
+  );
+  const teamOfTheSeason = rankedPlayers.slice(0, 11);
+  const playerOfTheYear = rankedPlayers[0];
+  return <section className="tab-panel"><SectionTitle kicker={seasonComplete ? 'SEASON HONOURS' : 'THE AWARDS RACE'} title="Season awards" detail="Form and contribution decide the honours." />
+    {error && <ErrorNotice message={error} />}
+    {playerOfTheYear && <section className="poty-card"><img src="/matchday/motm.jpg" alt="" /><div><div className="eyebrow">{seasonComplete ? 'PLAYER OF THE YEAR' : 'CURRENT PLAYER OF THE YEAR LEADER'}</div><h3>{playerOfTheYear.player_name}</h3><p>{playerOfTheYear.club_name} · {playerOfTheYear.goals} goals · {playerOfTheYear.assists} assists</p></div><strong>{seasonPlayerScore(playerOfTheYear).toFixed(1)}<small> IMPACT</small></strong></section>}
+    <section className="team-of-season"><div className="team-of-season-heading"><div><div className="eyebrow">{seasonComplete ? 'THE XI' : 'PROVISIONAL XI'}</div><h3>Team of the season</h3></div><span>{teamOfTheSeason.length} / 11</span></div>
+      {teamOfTheSeason.length ? <div className="award-player-grid">{teamOfTheSeason.map((player, index) => <Link className="award-player" to={`/clubs/${player.club_id}`} key={player.player_id}><span>{String(index + 1).padStart(2, '0')}</span><strong>{player.player_name}</strong><small>{player.club_name}</small><em>{player.goals} G · {player.assists} A</em></Link>)}</div> : <EmptyPanel title="The awards are waiting" text="Play some fixtures to see the season's standout players." />}
+    </section>
   </section>;
 }
 

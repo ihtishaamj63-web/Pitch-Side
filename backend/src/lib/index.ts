@@ -11,6 +11,7 @@ export { calculateStandings, computeTable } from './standings';
 export { DEFAULT_TABLE_RULES } from './standings';
 export type { Club, MatchResult, PlayedMatch, Standing, TableRow, TableRules } from './standings';
 export {
+  applyTactics,
   assignScorers,
   calculateExpectedGoals,
   expectedGoals,
@@ -23,6 +24,8 @@ export type {
   ExpectedGoalsParameters,
   Foul,
   GoalScorer,
+  ManagerChoices,
+  ManagerMatchSummary,
   PlayerMatchStats,
   RedCard,
   SimulatedMatch,
@@ -30,5 +33,6 @@ export type {
   SimulationClub,
   SquadPlayer,
   TeamMatchStats,
+  Tactics,
   YellowCard,
 } from './simulation';

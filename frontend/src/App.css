@@ -429,16 +429,92 @@ h1, h2, h3, p { margin-top: 0; }
 .manager-club-option span, .manager-club-option small { color: var(--muted); font-size: 8px; }
 .manager-result { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 12px 0; padding: 10px 14px; border-left: 2px solid var(--lime); background: rgba(200, 242, 105, .06); color: #c8d2dd; font-size: 9px; }
 .manager-result strong { color: var(--lime); }
+.manager-headline { flex-basis: 100%; color: #f0d47a; font-size: 11px; font-style: italic; }
+.manager-streak, .manager-next-match { display: grid; gap: 5px; padding: 0 12px; border-left: 1px solid rgba(146, 171, 196, .2); color: #9eacba; font-size: 8px; }
+.manager-streak > span { display: flex; align-items: center; gap: 7px; color: #d7e0e6; }
+.manager-streak strong { color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 20px; }
+.manager-streak small { color: #9eacba; font-size: 8px; }
+.manager-next-match > span { color: #9eacba; font-size: 7px; font-weight: 700; letter-spacing: .12em; }
+.manager-next-match > strong { color: #e6ecf0; font-size: 9px; }
+.opponent-strength { display: inline-flex; align-items: center; gap: 5px; color: #d6e0e7; font-size: 8px; }
+.opponent-strength i { width: 7px; height: 7px; border-radius: 50%; background: #e8c84d; }
+.opponent-strength--underdog i { background: #19e68c; box-shadow: 0 0 8px rgba(25, 230, 140, .3); }
+.opponent-strength--tough-test i { background: #ff5968; }
+.table-trophy { margin-left: 6px; font-size: 12px; vertical-align: 1px; }
+.report-motm, .live-motm { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); background: rgba(242, 190, 75, .06); }
+.report-motm { padding: 10px 20px; }
+.report-motm img, .live-motm img { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; }
+.report-motm span, .live-motm span { display: grid; gap: 3px; }
+.report-motm small, .live-motm small { color: #f0ce72; font-size: 7px; font-weight: 700; letter-spacing: .12em; }
+.report-motm strong, .live-motm strong { color: #f3f0e8; font-size: 10px; }
+.report-motm em { color: #99a6b3; font-size: 8px; font-style: normal; }
+.matchday-overlay { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 24px; background: rgba(3, 7, 11, .86); backdrop-filter: blur(7px); }
+.matchday-live { width: min(660px, 100%); max-height: min(780px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(172, 199, 215, .25); background: #0e1721; box-shadow: 0 24px 80px rgba(0, 0, 0, .52); }
+.matchday-live-header { min-height: 160px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 24px; background-position: center; background-size: cover; border-bottom: 1px solid var(--line); }
+.matchday-live-header h2 { max-width: 430px; margin: 7px 0 0; color: #f1f3f4; font-family: 'Barlow Condensed', sans-serif; font-size: clamp(24px, 4vw, 37px); font-weight: 600; line-height: 1.05; }
+.matchday-live-header h2 span { color: #a4b1bd; font-size: .72em; }
+.matchday-live-score { display: flex; gap: 8px; color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 48px; font-weight: 700; }
+.matchday-live-score span { color: #7e8d9a; }
+.matchday-progress-meta { display: flex; align-items: center; justify-content: space-between; padding: 13px 20px 7px; color: #a4b0ba; font-size: 8px; font-weight: 700; letter-spacing: .12em; }
+.matchday-progress-meta strong { color: var(--lime); font-size: 12px; letter-spacing: 0; }
+.matchday-progress-meta small { color: #8897a4; font-size: 9px; font-weight: 500; }
+.matchday-progress { height: 4px; margin: 0 20px; overflow: hidden; background: #273443; }
+.matchday-progress span { display: block; height: 100%; background: linear-gradient(90deg, #18c77b, #d6ef79); transition: width .12s linear; }
+.matchday-live-feed { min-height: 130px; max-height: 300px; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; padding: 15px 20px; }
+.live-event { display: grid; grid-template-columns: 35px minmax(0, 1fr) 24px; align-items: center; gap: 9px; min-height: 44px; padding: 6px 10px; border-left: 2px solid var(--lime); background: linear-gradient(90deg, rgba(15, 29, 38, .9), rgba(15, 29, 38, .65)), url('/matchday/ballinnet.jpg') center 53% / cover; }
+.live-event--yellow, .live-event--red { border-color: #e7c84c; background-image: linear-gradient(90deg, rgba(20, 27, 32, .94), rgba(20, 27, 32, .72)), url('/matchday/referee.jpg'); }
+.live-event--red { border-color: #ff5b67; }
+.live-event--foul { border-color: #a4afbb; background-image: linear-gradient(90deg, rgba(18, 27, 35, .94), rgba(18, 27, 35, .72)), url('/matchday/corner.jpg'); }
+.live-event > b { color: #dbe3e7; font-size: 9px; }
+.live-event span { display: grid; gap: 3px; }
+.live-event strong { color: #eef1f2; font-size: 10px; }
+.live-event small { color: #a8b4bf; font-size: 7px; letter-spacing: .09em; }
+.live-event > i { font-size: 14px; font-style: normal; text-align: center; }
+.live-commentary { margin: 0; padding: 10px 11px; border-left: 2px solid #6f8395; color: #bac5ce; background: linear-gradient(90deg, rgba(18, 27, 35, .88), rgba(18, 27, 35, .76)), url('/matchday/empty-stadium.jpg') center / cover; font-size: 10px; line-height: 1.6; }
+.live-fulltime { padding: 0 20px 15px; }
+.live-fulltime > p { margin: 0 0 10px; color: #f0d47a; font-size: 11px; font-style: italic; }
+.live-motm { width: fit-content; padding: 8px 10px; border: 1px solid rgba(229, 194, 104, .28); }
+.live-fulltime-stats { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.live-fulltime-stats > span { display: flex; gap: 6px; padding: 6px 8px; border: 1px solid rgba(146, 171, 196, .15); color: #a7b3bd; font-size: 8px; }
+.live-fulltime-stats b { color: #e6ecf0; font-variant-numeric: tabular-nums; }
+.matchday-live-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.poty-card { min-height: 126px; display: flex; align-items: center; gap: 18px; margin-bottom: 20px; padding: 16px; border: 1px solid rgba(224, 187, 94, .35); background: linear-gradient(100deg, rgba(46, 37, 19, .58), rgba(14, 23, 33, .85)), url('/matchday/motm.jpg') right 42% / auto 180%; }
+.poty-card > img { width: 65px; height: 65px; object-fit: cover; border-radius: 50%; border: 1px solid #d5b861; }
+.poty-card > div { flex: 1; }
+.poty-card h3 { margin: 4px 0; color: #f2f0e8; font-family: 'Barlow Condensed', sans-serif; font-size: 25px; }
+.poty-card p { margin: 0; color: #b7c0c6; font-size: 9px; }
+.poty-card > strong { color: #f0d47a; font-family: 'Barlow Condensed', sans-serif; font-size: 25px; }
+.poty-card > strong small { display: block; font-family: 'Inter Variable', sans-serif; font-size: 7px; }
+.team-of-season { padding: 16px; border: 1px solid var(--line); background: rgba(15, 25, 38, .65); }
+.team-of-season-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 14px; }
+.team-of-season-heading h3 { margin: 4px 0 0; color: var(--white); font-family: 'Barlow Condensed', sans-serif; font-size: 24px; }
+.team-of-season-heading > span { color: #a3afbd; font-size: 9px; }
+.award-player-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.award-player { min-width: 0; display: grid; gap: 5px; padding: 10px; border: 1px solid rgba(146, 171, 196, .13); background: rgba(9, 15, 21, .5); }
+.award-player > span { color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; }
+.award-player strong { overflow: hidden; color: #ecf0f2; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.award-player small, .award-player em { overflow: hidden; color: #96a4b3; font-size: 7px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 760px) {
   .manager-panel { flex-wrap: wrap; gap: 12px; }
   .manager-tactics-note { flex-basis: 100%; order: 1; }
+  .manager-streak, .manager-next-match { padding-left: 9px; }
+  .award-player-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
   .manager-panel { align-items: flex-start; padding: 12px; }
   .manager-team { flex: 1 1 100%; }
+  .manager-streak, .manager-next-match { flex: 1; border-left: 0; padding: 0; }
   .manager-picker { padding: 14px 11px; }
   .manager-club-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .manager-picker-heading h2 { font-size: 23px; }
+  .matchday-overlay { padding: 9px; }
+  .matchday-live { max-height: calc(100vh - 18px); }
+  .matchday-live-header { min-height: 130px; padding: 16px 13px; }
+  .matchday-live-score { gap: 4px; font-size: 39px; }
+  .matchday-live-feed { padding: 11px; }
+  .award-player-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .poty-card { gap: 10px; padding: 12px; }
+  .poty-card > img { width: 48px; height: 48px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

@@ -30,6 +30,16 @@ export const createLeagueSchema = z.object({
   }
 });
 
+export const simulateNextSchema = z.object({
+  managerClubId: z.number().int().positive().optional(),
+  tactics: z.enum(['attacking', 'balanced', 'defensive']).optional(),
+}).refine(
+  ({ managerClubId, tactics }) =>
+    (managerClubId === undefined && tactics === undefined)
+    || (managerClubId !== undefined && tactics !== undefined),
+  { message: 'managerClubId and tactics must be supplied together' },
+);
+
 export function parseId(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) throw new ApiError('Invalid id', 400);
   const id = Number(value);

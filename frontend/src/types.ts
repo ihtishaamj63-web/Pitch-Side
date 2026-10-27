@@ -20,6 +20,14 @@ export interface ManagerMatchSummary {
   expectedGoalsAgainst: number;
   goalsFor: number;
   goalsAgainst: number;
+  lastGoalMinute?: number;
+}
+
+export interface ManagerState {
+  currentStreak: number;
+  bestStreak: number;
+  averageRating: number;
+  matchesManaged: number;
 }
 
 export interface Club {

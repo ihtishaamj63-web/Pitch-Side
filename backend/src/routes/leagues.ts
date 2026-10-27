@@ -6,7 +6,7 @@ import { ApiError } from '../errors';
 import { createLeague } from '../services/league';
 import { findNextMatchday, simulateMatchday } from '../services/simulation';
 import { withTransaction } from '../services/transaction';
-import { createLeagueSchema, parseId } from '../validation';
+import { createLeagueSchema, parseId, simulateNextSchema } from '../validation';
 
 export const leaguesRouter = Router();
 
@@ -175,14 +175,29 @@ leaguesRouter.get('/leagues/:id/table', async (req, res) => {
 
 leaguesRouter.post('/leagues/:id/simulate/next', async (req, res) => {
   const leagueId = parseId(req.params.id);
+  const parsed = simulateNextSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    throw new ApiError(parsed.error.issues[0]?.message ?? 'Invalid simulate body', 400);
+  }
+  const managerChoices = parsed.data.managerClubId !== undefined && parsed.data.tactics !== undefined
+    ? { clubId: parsed.data.managerClubId, tactics: parsed.data.tactics }
+    : undefined;
   const result = await withTransaction(async (client) => {
     await lockLeague(client, leagueId);
+    if (managerChoices) {
+      const club = await client.query(
+        'SELECT 1 FROM clubs WHERE id = $1 AND league_id = $2',
+        [managerChoices.clubId, leagueId],
+      );
+      if (club.rowCount === 0) throw new ApiError('Manager club not found in this league', 400);
+    }
     const matchday = await findNextMatchday(client, leagueId);
     if (matchday === null) throw new ApiError('Season is already finished', 409);
-    const matchesPlayed = await simulateMatchday(client, leagueId, matchday);
-    return { matchday, matchesPlayed };
+    const simulation = await simulateMatchday(client, leagueId, matchday, managerChoices);
+    return { matchday, ...simulation };
   });
-  res.json(result);
+  const { managerMatch, ...response } = result;
+  res.json(managerChoices ? { ...response, managerMatch } : response);
 });
 
 leaguesRouter.post('/leagues/:id/simulate/all', async (req, res) => {
@@ -193,7 +208,7 @@ leaguesRouter.post('/leagues/:id/simulate/all', async (req, res) => {
     let matchesPlayed = 0;
     let matchday = await findNextMatchday(client, leagueId);
     while (matchday !== null) {
-      matchesPlayed += await simulateMatchday(client, leagueId, matchday);
+      matchesPlayed += (await simulateMatchday(client, leagueId, matchday)).matchesPlayed;
       matchdaysPlayed += 1;
       matchday = await findNextMatchday(client, leagueId);
     }

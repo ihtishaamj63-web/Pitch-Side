@@ -1,5 +1,6 @@
 import { createSeededRng, mulberry32 } from '../../src/lib/random';
 import {
+  applyTactics,
   assignScorers,
   expectedGoals,
   samplePoisson,
@@ -54,6 +55,22 @@ describe('expectedGoals', () => {
       { ...home, defence: 1 },
       { ...away, attack: 1000 },
     ).away).toBe(4.5);
+  });
+});
+
+describe('applyTactics', () => {
+  it('adjusts the managed club ratings without mutating its original', () => {
+    const club = { id: 9, name: 'Managed', attack: 70, defence: 80 };
+    const attacking = applyTactics(club, 'attacking');
+    expect(attacking).toMatchObject({ attack: 77, defence: 72 });
+    expect(club).toMatchObject({ attack: 70, defence: 80 });
+    expect(applyTactics(club, 'balanced')).toMatchObject({ attack: 70, defence: 80 });
+    expect(applyTactics(club, 'defensive')).toMatchObject({ attack: 63, defence: 88 });
+  });
+
+  it('keeps tactic-adjusted ratings within the simulation range', () => {
+    expect(applyTactics({ id: 1, name: 'Strong', attack: 100, defence: 1 }, 'attacking'))
+      .toMatchObject({ attack: 100, defence: 1 });
   });
 });
 

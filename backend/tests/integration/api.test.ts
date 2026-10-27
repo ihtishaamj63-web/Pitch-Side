@@ -84,6 +84,47 @@ describe('Pitch API', () => {
     });
   });
 
+  test('applies manager tactics only to a club selected from the league', async () => {
+    const leagueId = await createLeague();
+    const clubs = await pool.query<{ id: number }>(
+      'SELECT id FROM clubs WHERE league_id = $1 ORDER BY id',
+      [leagueId],
+    );
+    const managedClubId = clubs.rows[0].id;
+    const response = await request(app)
+      .post(`/api/leagues/${leagueId}/simulate/next`)
+      .send({ managerClubId: managedClubId, tactics: 'attacking' })
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      matchday: 1,
+      matchesPlayed: 2,
+      managerMatch: {
+        clubId: managedClubId,
+        matchday: 1,
+        tactics: 'attacking',
+        goalsFor: expect.any(Number),
+        goalsAgainst: expect.any(Number),
+        expectedGoalsFor: expect.any(Number),
+        expectedGoalsAgainst: expect.any(Number),
+      },
+    });
+
+    const otherLeagueId = await createLeague();
+    const otherClub = await pool.query<{ id: number }>(
+      'SELECT id FROM clubs WHERE league_id = $1 ORDER BY id LIMIT 1',
+      [otherLeagueId],
+    );
+    await request(app)
+      .post(`/api/leagues/${leagueId}/simulate/next`)
+      .send({ managerClubId: otherClub.rows[0].id, tactics: 'defensive' })
+      .expect(400);
+    await request(app)
+      .post(`/api/leagues/${leagueId}/simulate/next`)
+      .send({ managerClubId: managedClubId })
+      .expect(400);
+  });
+
   test('serializes parallel next-matchday requests', async () => {
     const leagueId = await createLeague();
     const responses = await Promise.all([

@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
-import { mulberry32, simulateMatch } from '../lib';
-import type { SimulationPlayer } from '../lib';
+import { applyTactics, mulberry32, simulateMatch } from '../lib';
+import type { ManagerChoices, ManagerMatchSummary, SimulationPlayer } from '../lib';
 
 interface RatedClub {
   id: number;
@@ -24,7 +24,8 @@ export async function simulateMatchday(
   client: PoolClient,
   leagueId: number,
   matchday: number,
-) {
+  managerChoices?: ManagerChoices,
+): Promise<{ matchesPlayed: number; managerMatch: ManagerMatchSummary | null }> {
   const matches = await client.query<{
     id: number;
     home_club_id: number;
@@ -37,7 +38,7 @@ export async function simulateMatchday(
     [leagueId, matchday],
   );
 
-  if (matches.rows.length === 0) return 0;
+  if (matches.rows.length === 0) return { matchesPlayed: 0, managerMatch: null };
 
   const clubIds = [...new Set(matches.rows.flatMap((match) => [match.home_club_id, match.away_club_id]))];
   const [clubsResult, playersResult] = await Promise.all([
@@ -58,14 +59,19 @@ export async function simulateMatchday(
     squads.set(player.club_id, squad);
   }
 
+  let managerMatch: ManagerMatchSummary | null = null;
   for (const match of matches.rows) {
     const home = clubs.get(match.home_club_id);
     const away = clubs.get(match.away_club_id);
     if (!home || !away) throw new Error('Fixture references clubs outside its league');
     const rng = mulberry32(matchSeed(leagueId, match.id));
+    const homeClub = { ...home, players: squads.get(home.id) ?? [] };
+    const awayClub = { ...away, players: squads.get(away.id) ?? [] };
+    const homeIsManager = managerChoices?.clubId === home.id;
+    const awayIsManager = managerChoices?.clubId === away.id;
     const result = simulateMatch(
-      { ...home, players: squads.get(home.id) ?? [] },
-      { ...away, players: squads.get(away.id) ?? [] },
+      homeIsManager ? applyTactics(homeClub, managerChoices.tactics) : homeClub,
+      awayIsManager ? applyTactics(awayClub, managerChoices.tactics) : awayClub,
       rng,
     );
 
@@ -123,9 +129,25 @@ export async function simulateMatchday(
         ],
       );
     }
+
+    if (managerChoices && (homeIsManager || awayIsManager)) {
+      const isHome = homeIsManager;
+      managerMatch = {
+        matchId: match.id,
+        matchday,
+        clubId: managerChoices.clubId,
+        opponentId: isHome ? away.id : home.id,
+        isHome,
+        tactics: managerChoices.tactics,
+        expectedGoalsFor: isHome ? result.expectedGoals.home : result.expectedGoals.away,
+        expectedGoalsAgainst: isHome ? result.expectedGoals.away : result.expectedGoals.home,
+        goalsFor: isHome ? result.homeGoals : result.awayGoals,
+        goalsAgainst: isHome ? result.awayGoals : result.homeGoals,
+      };
+    }
   }
 
-  return matches.rows.length;
+  return { matchesPlayed: matches.rows.length, managerMatch };
 }
 
 export async function findNextMatchday(client: PoolClient, leagueId: number): Promise<number | null> {

@@ -1,4 +1,4 @@
-> **Screenshot/GIF placeholder:** add a Pitch dashboard capture here.
+> ![Pitch-Side Dashboard]({6FAC3480-8478-4F26-91C3-88B2A4B8CD4D}.png)
 
 # Pitch
 
@@ -8,8 +8,10 @@ It turns invented club ratings into fixtures, match reports, a live table, and p
 ## Try this
 
 1. Open the preloaded **Demo league**.
-2. Simulate the next matchday and review the scores, goal involvements and bookings.
+2. Choose a team to manage, set its tactics and simulate the next matchday.
 3. Open **League leaders** for goals, assists, cards, fouls, xG, shots and other player stats.
+
+Your managed team and tactical approach are saved per league in your browser. While managing a team, simulate one matchday at a time so your tactics are applied to each fixture.
 
 All club and player names, ratings, and crests are fictional. The project uses no real-world club, league, player, or badge data.
 

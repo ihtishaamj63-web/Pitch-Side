@@ -77,6 +77,26 @@ export interface SimulatedMatch extends PlayedMatch {
   expectedGoals: ExpectedGoals;
 }
 
+export type Tactics = 'attacking' | 'balanced' | 'defensive';
+
+export interface ManagerChoices {
+  clubId: number;
+  tactics: Tactics;
+}
+
+export interface ManagerMatchSummary {
+  matchId: number;
+  matchday: number;
+  clubId: number;
+  opponentId: number;
+  isHome: boolean;
+  tactics: Tactics;
+  expectedGoalsFor: number;
+  expectedGoalsAgainst: number;
+  goalsFor: number;
+  goalsAgainst: number;
+}
+
 export interface ExpectedGoalsParameters {
   baseGoals?: number;
   homeAdv?: number;
@@ -99,6 +119,20 @@ function positiveRating(rating: number, description: string): void {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+export function applyTactics<T extends SimulationClub>(club: T, tactics: Tactics): T {
+  const modifiers = {
+    attacking: { attack: 1.1, defence: 0.9 },
+    balanced: { attack: 1, defence: 1 },
+    defensive: { attack: 0.9, defence: 1.1 },
+  }[tactics];
+
+  return {
+    ...club,
+    attack: Math.round(clamp(club.attack * modifiers.attack, 1, 100)),
+    defence: Math.round(clamp(club.defence * modifiers.defence, 1, 100)),
+  };
 }
 
 /** Calculates xG using attack/defence multipliers and a home-field adjustment. */
