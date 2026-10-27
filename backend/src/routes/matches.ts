@@ -76,7 +76,7 @@ matchesRouter.get('/matches/:id', async (req, res) => {
   const match = result.rows[0];
   if (!match) throw new ApiError('Match not found', 404);
 
-  const [goals, yellowCards, redCards, fouls, teamStats, playerStats] = await Promise.all([
+  const [goals, yellowCards, redCards, fouls, substitutions, teamStats, playerStats] = await Promise.all([
     pool.query(
       `SELECT g.id, g.club_id, g.player_id, p.name AS player_name,
        g.assist_player_id, ap.name AS assist_player_name, g.minute
@@ -112,6 +112,16 @@ matchesRouter.get('/matches/:id', async (req, res) => {
       [id],
     ),
     pool.query(
+      `SELECT s.id, s.club_id, s.player_off_id, off.name AS player_off_name,
+         s.player_on_id, on_player.name AS player_on_name, s.minute
+       FROM substitutions s
+       JOIN players off ON off.id = s.player_off_id
+       JOIN players on_player ON on_player.id = s.player_on_id
+       WHERE s.match_id = $1
+       ORDER BY s.minute, s.id`,
+      [id],
+    ),
+    pool.query(
       `SELECT s.club_id, s.possession, s.shots, s.shots_on_target, s.corners,
          s.fouls, s.saves,
          CASE WHEN s.club_id = m.home_club_id THEN m.home_xg ELSE m.away_xg END AS xg
@@ -121,7 +131,7 @@ matchesRouter.get('/matches/:id', async (req, res) => {
       [id],
     ),
     pool.query(
-      `SELECT pms.club_id, pms.player_id, p.name AS player_name, p.position,
+      `SELECT pms.club_id, pms.player_id, p.name AS player_name, p.position, pms.is_starter,
          pms.minutes_played, pms.shots, pms.shots_on_target, pms.xg,
          pms.key_passes, pms.tackles,
          (SELECT COUNT(*)::int FROM goals g WHERE g.match_id = pms.match_id AND g.player_id = pms.player_id) AS goals,
@@ -142,6 +152,7 @@ matchesRouter.get('/matches/:id', async (req, res) => {
     yellow_cards: yellowCards.rows,
     red_cards: redCards.rows,
     fouls: fouls.rows,
+    substitutions: substitutions.rows,
     team_stats: teamStats.rows,
     player_stats: playerStats.rows,
   });

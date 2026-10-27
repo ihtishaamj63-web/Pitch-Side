@@ -109,6 +109,7 @@ CREATE TABLE player_match_stats (
   match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
   club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
   player_id INTEGER NOT NULL,
+  is_starter BOOLEAN NOT NULL DEFAULT FALSE,
   minutes_played INTEGER NOT NULL CHECK (minutes_played BETWEEN 0 AND 90),
   shots INTEGER NOT NULL CHECK (shots >= 0),
   shots_on_target INTEGER NOT NULL CHECK (shots_on_target >= 0),
@@ -118,4 +119,18 @@ CREATE TABLE player_match_stats (
   PRIMARY KEY (match_id, player_id),
   FOREIGN KEY (club_id, player_id) REFERENCES players(club_id, id) ON DELETE CASCADE,
   CHECK (shots_on_target <= shots)
+);
+
+CREATE TABLE substitutions (
+  id SERIAL PRIMARY KEY,
+  match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+  player_off_id INTEGER NOT NULL,
+  player_on_id INTEGER NOT NULL,
+  minute INTEGER NOT NULL CHECK (minute BETWEEN 1 AND 90),
+  FOREIGN KEY (club_id, player_off_id) REFERENCES players(club_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (club_id, player_on_id) REFERENCES players(club_id, id) ON DELETE CASCADE,
+  CHECK (player_off_id <> player_on_id),
+  UNIQUE (match_id, player_off_id),
+  UNIQUE (match_id, player_on_id)
 );

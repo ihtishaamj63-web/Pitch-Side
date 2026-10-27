@@ -130,7 +130,7 @@ describe('scorer assignment and match simulation', () => {
       { id: 3, name: 'Midfielder', position: 'MID' },
       { id: 4, name: 'Forward', position: 'FWD' },
     ];
-    const randomValues = [0, 0, 0.2, 0, 0.5, 0];
+    const randomValues = [0, 0, 0, 0.2, 0, 0.5];
     let index = 0;
     const scorers = assignScorers(3, squad, () => randomValues[index++], 8);
     expect(scorers.map((scorer) => scorer.playerId)).toEqual([2, 3, 4]);
@@ -167,5 +167,63 @@ describe('scorer assignment and match simulation', () => {
       expect(card.minute).toBeGreaterThanOrEqual(1);
       expect(card.minute).toBeLessThanOrEqual(90);
     });
+  });
+
+  it('records an XI, used substitutes, and participant minutes for each full squad', () => {
+    const makeSquad = (clubId: number | string): SimulationPlayer[] => {
+      const base = Number(clubId) * 100;
+      return [
+      { id: base + 1, name: 'Keeper', position: 'GK' },
+      ...Array.from({ length: 4 }, (_, index) => ({
+        id: base + 2 + index,
+        name: `Defender ${index + 1}`,
+        position: 'DEF',
+      })),
+      ...Array.from({ length: 5 }, (_, index) => ({
+        id: base + 6 + index,
+        name: `Midfielder ${index + 1}`,
+        position: 'MID',
+      })),
+      ...Array.from({ length: 4 }, (_, index) => ({
+        id: base + 11 + index,
+        name: `Forward ${index + 1}`,
+        position: 'FWD',
+      })),
+      ];
+    };
+    const result = simulateMatch(
+      { ...home, players: makeSquad(home.id) },
+      { ...away, players: makeSquad(away.id) },
+      createSeededRng(2026),
+    );
+
+    for (const club of [home, away]) {
+      const clubStats = result.playerStats.filter(stats => stats.clubId === club.id);
+      expect(clubStats.filter(stats => stats.isStarter)).toHaveLength(11);
+      const substitutions = result.substitutions.filter(substitution => substitution.clubId === club.id);
+      expect(substitutions).toHaveLength(3);
+
+      for (const substitution of substitutions) {
+        const playerOff = clubStats.find(stats => stats.playerId === substitution.playerOffId);
+        const playerOn = clubStats.find(stats => stats.playerId === substitution.playerOnId);
+        expect(playerOff?.isStarter).toBe(true);
+        expect(playerOff?.minutesPlayed).toBe(substitution.minute);
+        expect(playerOn?.isStarter).toBe(false);
+        expect(playerOn?.minutesPlayed).toBeLessThanOrEqual(90 - substitution.minute);
+      }
+
+      result.scorers.filter(scorer => scorer.clubId === club.id).forEach(scorer => {
+        const player = clubStats.find(stats => stats.playerId === scorer.playerId);
+        expect(player).toBeDefined();
+        const substitutionOn = result.substitutions.find(substitution => substitution.playerOnId === scorer.playerId);
+        const substitutionOff = result.substitutions.find(substitution => substitution.playerOffId === scorer.playerId);
+        const startedAt = substitutionOn?.minute ?? 0;
+        expect(scorer.minute).toBeGreaterThanOrEqual(startedAt);
+        const redCard = result.redCards.find(card => card.playerId === scorer.playerId);
+        const endedAt = substitutionOff?.minute ?? redCard?.minute;
+        if (endedAt !== undefined) expect(scorer.minute).toBeLessThan(endedAt);
+        else expect(scorer.minute).toBeLessThanOrEqual(90);
+      });
+    }
   });
 });

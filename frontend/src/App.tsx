@@ -3,8 +3,7 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { api, readableError } from './api';
 import { ClubCrest } from './Crest';
-import type { Club, ClubDetail, LeagueDetail, LeagueSummary, ManagerMatchSummary, ManagerState, Match, MatchDetail, MatchPlayerStats, PlayerStat, Standing, Tactics } from './types';
-import { appendManagerMatch, generateHeadline, managerMatchRating } from './manager';
+import type { Club, ClubDetail, LeagueDetail, LeagueSummary, ManagerMatchSummary, Match, MatchDetail, MatchPlayerStats, PlayerStat, Standing, Tactics } from './types';
 import './App.css';
 
 const footerUrl = import.meta.env.VITE_PORTFOLIO_URL;
@@ -16,13 +15,11 @@ const tabs = [
   ['awards', 'Awards'],
 ] as const;
 
-const emptyManagerState: ManagerState = { currentStreak: 0, bestStreak: 0, averageRating: 0, matchesManaged: 0 };
-
 interface MatchPlayback {
   match: MatchDetail;
   minute: number;
   complete: boolean;
-  headline: string;
+  startedAt: number;
 }
 
 function App() {
@@ -31,12 +28,19 @@ function App() {
 
 function AppContent() {
   const location = useLocation();
+  const leagueId = location.pathname.match(/^\/leagues\/([^/]+)/)?.[1];
+  const [managerClubId, setManagerClubId] = useState<number | null>(() => leagueId ? readManagerClubFromStorage(leagueId) : null);
+  useEffect(() => {
+    const updateManagerClub = () => setManagerClubId(leagueId ? readManagerClubFromStorage(leagueId) : null);
+    updateManagerClub();
+    window.addEventListener('pitch:manager-team-changed', updateManagerClub);
+    return () => window.removeEventListener('pitch:manager-team-changed', updateManagerClub);
+  }, [leagueId]);
   return (
       <div className="app-shell">
         <header className="topbar">
           <Link className="brand" to="/" aria-label="Pitch home"><span className="brand-mark">P</span><span>PITCH</span></Link>
-          <span className="topbar-note"><span className="live-dot" /> LEAGUE MANAGEMENT</span>
-          <a className="topbar-link" href={footerUrl || '#leagues'} target={footerUrl ? '_blank' : undefined} rel={footerUrl ? 'noreferrer' : undefined}>Explore the season <span aria-hidden="true">↗</span></a>
+          <SeasonDropdown leagueId={leagueId} managerClubId={managerClubId} />
         </header>
         <main className="main-content">
           <AnimatePresence mode="wait" initial={false}>
@@ -50,9 +54,74 @@ function AppContent() {
           </Routes>
           </AnimatePresence>
         </main>
-        <footer className="footer"><span>THE GAME, REIMAGINED.</span><span>Built by {footerUrl ? <a href={footerUrl} target="_blank" rel="noreferrer">Ihtishaam <span aria-hidden="true">↗</span></a> : 'Ihtishaam'}</span></footer>
+        <footer className="footer"><span>Built by {footerUrl ? <a href={footerUrl} target="_blank" rel="noreferrer">Ihtishaam</a> : 'Ihtishaam'}</span></footer>
       </div>
   );
+}
+
+function readManagerClubFromStorage(leagueId: string): number | null {
+  const stored = window.localStorage.getItem(`pitch:manager-club:${leagueId}`);
+  return stored && /^[1-9]\d*$/.test(stored) && Number.isSafeInteger(Number(stored)) ? Number(stored) : null;
+}
+
+function SeasonDropdown({ leagueId, managerClubId }: { leagueId: string | undefined; managerClubId: number | null }) {
+  const [open, setOpen] = useState(false);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const location = useLocation();
+  const activeMatchday = Number(new URLSearchParams(location.search).get('matchday')) || 1;
+
+  useEffect(() => {
+    if (!open || !leagueId) return;
+    let cancelled = false;
+    api.matches(leagueId)
+      .then(data => { if (!cancelled) { setMatches(data); setError(''); } })
+      .catch(err => { if (!cancelled) setError(readableError(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, leagueId, activeMatchday, location.key]);
+
+  const teamMatch = matches.find(match =>
+    match.matchday === activeMatchday
+    && [match.home_club_id, match.away_club_id].some(id => Number(id) === managerClubId),
+  );
+  const teamName = teamMatch
+    ? Number(teamMatch.home_club_id) === managerClubId ? teamMatch.home_club_name : teamMatch.away_club_name
+    : null;
+  const openMatchCentre = teamMatch
+    ? `/leagues/${leagueId}/match-centre?matchday=${activeMatchday}&match=${teamMatch.id}`
+    : `/leagues/${leagueId}/match-centre?matchday=${activeMatchday}`;
+
+  return <div className="season-dropdown">
+    <button className="topbar-link season-dropdown-trigger" type="button" aria-expanded={open} onClick={() => {
+      const nextOpen = !open;
+      setOpen(nextOpen);
+      if (nextOpen && leagueId) setLoading(true);
+    }}>
+      Season centre
+    </button>
+    {open && <section className="season-dropdown-panel" aria-label="Managed team match summary">
+      <header><span className="eyebrow">TEAM MATCH CENTRE</span><strong>Matchday {activeMatchday}</strong></header>
+      {!leagueId ? <p>Open a league to see its match centre.</p>
+        : managerClubId === null ? <p>Choose a team in this league to follow its match here.</p>
+          : loading ? <p>Loading your team&apos;s match…</p>
+            : error ? <ErrorNotice message={error} />
+              : !teamMatch ? <p>{`No match scheduled for your team on matchday ${activeMatchday}.`}</p>
+                : <div className="season-dropdown-match">
+                  <div className="season-dropdown-score">
+                    <span>{teamMatch.home_club_name}</span>
+                    <strong>{teamMatch.home_goals ?? '–'} <i>:</i> {teamMatch.away_goals ?? '–'}</strong>
+                    <span>{teamMatch.away_club_name}</span>
+                  </div>
+                  {teamMatch.goal_events?.length ? <div className="season-dropdown-goals">{teamMatch.goal_events.map((goal, index) =>
+                    <span key={`${goal.minute}-${index}`}><b>{goal.minute}&apos;</b> {goal.player_name}{goal.assist_player_name ? ` · ${goal.assist_player_name}` : ''}</span>,
+                  )}</div> : <p>{teamMatch.played_at ? 'No goals recorded.' : 'Kick-off pending.'}</p>}
+                  <small>{teamName} · xG {Number(teamMatch.home_xg ?? 0).toFixed(2)}–{Number(teamMatch.away_xg ?? 0).toFixed(2)} · YC {teamMatch.yellow_card_count ?? 0} · RC {teamMatch.red_card_count ?? 0}</small>
+                </div>}
+      {leagueId && <Link className="season-dropdown-link" to={openMatchCentre} onClick={() => setOpen(false)}>Open match centre</Link>}
+    </section>}
+  </div>;
 }
 
 function PageMotion({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -64,6 +133,7 @@ function LeagueHome() {
   const [leagues, setLeagues] = useState<LeagueSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deletingLeagueId, setDeletingLeagueId] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
       setLeagues(await api.leagues());
@@ -71,6 +141,19 @@ function LeagueHome() {
     } catch (err) { setError(readableError(err)); }
     finally { setLoading(false); }
   }, []);
+  const deleteLeague = async (league: LeagueSummary) => {
+    if (!window.confirm(`Delete "${league.name}" and all of its season data? This cannot be undone.`)) return;
+    setDeletingLeagueId(String(league.id));
+    setError('');
+    try {
+      await api.deleteLeague(league.id);
+      setLeagues(current => current.filter(item => String(item.id) !== String(league.id)));
+    } catch (err) {
+      setError(readableError(err));
+    } finally {
+      setDeletingLeagueId(null);
+    }
+  };
   useEffect(() => {
     let cancelled = false;
     api.leagues().then(data => { if (!cancelled) { setLeagues(data); setError(''); } })
@@ -83,31 +166,34 @@ function LeagueHome() {
     <PageMotion>
       <section className="hero">
         <div className="hero-copy">
-          <div className="eyebrow"><span className="eyebrow-line" /> YOUR FOOTBALL COMPETITION</div>
           <h1>Build a league.<br /><em>Run the season.</em></h1>
           <p>Create your clubs, simulate the fixtures and follow the table, match reports and player statistics.</p>
-          <Link to="/leagues/new" className="button button-primary">Create a league <span aria-hidden="true">↗</span></Link>
+          <Link to="/leagues/new" className="button button-primary">Create a league</Link>
         </div>
-        <div className="hero-art" aria-hidden="true">
-          <div className="stadium-glow" /><div className="pitch-lines"><span /><span /><span /></div>
-          <div className="hero-orbit orbit-one" /><div className="hero-orbit orbit-two" />
-          <div className="hero-ball"><span /><span /><span /></div>
-          <div className="hero-caption"><span>01 / 90</span><span>LIGHTS ON. GAME ON.</span></div>
+        <div className="hero-art">
+          <img className="hero-photo" src="/matchday/kickoff.jpg" alt="A football on a grass pitch" />
         </div>
       </section>
       <section className="league-section" id="leagues">
-        <div className="section-heading"><div><div className="eyebrow">YOUR UNIVERSE</div><h2>Leagues <span className="heading-count">{leagues.length.toString().padStart(2, '0')}</span></h2></div><Link className="text-link" to="/leagues/new">Build a new league <span>↗</span></Link></div>
+        <div className="section-heading"><div><h2>Leagues <span className="heading-count">{leagues.length.toString().padStart(2, '0')}</span></h2></div><Link className="text-link" to="/leagues/new">Build a new league</Link></div>
         {error && <ErrorNotice message={error} onRetry={() => { setLoading(true); void load(); }} />}
         {loading ? <Loading label="Finding your leagues" /> : leagues.length ? (
           <div className="league-grid">
-            {leagues.map((league, index) => <Link to={`/leagues/${league.id}`} className="league-card" key={league.id}>
-              <div className={`league-card-art league-card-art--${index % 3}`}><span className="season-stamp">{league.season_label}</span><span className="card-index">{String(index + 1).padStart(2, '0')}</span><div className="mini-pitch"><span /></div></div>
-              <div className="league-card-body"><div><h3>{league.name}</h3><p>{league.club_count} clubs <span>·</span> {league.total_matches} fixtures</p></div><span className="card-arrow">↗</span></div>
-              <div className="league-progress"><span style={{ width: `${league.total_matches ? Math.min(100, league.played_matches / league.total_matches * 100) : 0}%` }} /></div>
-              <div className="progress-label"><span>SEASON PROGRESS</span><span>{league.played_matches} / {league.total_matches} played</span></div>
-            </Link>)}
+            {leagues.map((league, index) => <article className="league-card" key={league.id}>
+              <Link to={`/leagues/${league.id}`} className="league-card-link">
+                <div className={`league-card-art league-card-art--${index % 3}`}><span className="season-stamp">{league.season_label}</span><span className="card-index">{String(index + 1).padStart(2, '0')}</span><div className="mini-pitch"><span /></div></div>
+                <div className="league-card-body"><div><h3>{league.name}</h3><p>{league.club_count} clubs <span>·</span> {league.total_matches} fixtures</p></div></div>
+                <div className="league-progress"><span style={{ width: `${league.total_matches ? Math.min(100, league.played_matches / league.total_matches * 100) : 0}%` }} /></div>
+                <div className="progress-label"><span>SEASON PROGRESS</span><span>{league.played_matches} / {league.total_matches} played</span></div>
+              </Link>
+              <div className="league-card-actions">
+                <button type="button" className="league-delete-button" disabled={deletingLeagueId !== null} onClick={() => void deleteLeague(league)}>
+                  {deletingLeagueId === String(league.id) ? 'Deleting…' : 'Delete league'}
+                </button>
+              </div>
+            </article>)}
           </div>
-        ) : <div className="empty-state"><div className="empty-icon">✳</div><h3>A blank page. A whole season.</h3><p>Your first league is one decision away.</p><Link to="/leagues/new" className="button button-secondary">Create your first league <span>↗</span></Link></div>}
+        ) : <div className="empty-state"><h3>A blank page. A whole season.</h3><p>Your first league is one decision away.</p><Link to="/leagues/new" className="button button-secondary">Create your first league</Link></div>}
       </section>
     </PageMotion>
   );
@@ -160,7 +246,7 @@ function CreateLeague() {
 
   return <PageMotion className="narrow-page">
     <BackLink to="/" label="All leagues" />
-    <div className="eyebrow"><span className="eyebrow-line" /> THE FIRST WHISTLE</div><h1 className="page-title">Create your <em>league.</em></h1>
+    <h1 className="page-title">Create your <em>league.</em></h1>
     <p className="page-intro">Pick a name, set the season, and we'll dream up a cast of clubs to get you started.</p>
     <form className="form-panel" onSubmit={submit}>
       <div className="form-section"><div className="form-section-title"><span>01</span><div><h2>League identity</h2><p>Set the scene for your new season.</p></div></div>
@@ -175,7 +261,7 @@ function CreateLeague() {
         <div className="form-grid"><label>TOP ZONE<select value={topZone} onChange={e => setTopZone(Number(e.target.value))}>{Array.from({ length: Math.floor(clubCount / 2) }, (_, i) => i + 1).map(v => <option value={v} key={v}>{v} clubs</option>)}</select></label><label>BOTTOM ZONE<select value={bottomZone} onChange={e => setBottomZone(Number(e.target.value))}>{Array.from({ length: Math.floor(clubCount / 2) }, (_, i) => i + 1).map(v => <option value={v} key={v}>{v} clubs</option>)}</select></label></div>
       </div>
       {error && <ErrorNotice message={error} />}
-      <button className="button button-primary submit-button" type="submit" disabled={busy}>{busy ? 'Creating your league…' : 'Kick off the season'} <span aria-hidden="true">↗</span></button>
+      <button className="button button-primary submit-button" type="submit" disabled={busy}>{busy ? 'Creating your league…' : 'Kick off the season'}</button>
     </form>
   </PageMotion>;
 }
@@ -183,7 +269,8 @@ function CreateLeague() {
 function LeaguePage() {
   const { leagueId = '', tab: routeTab = 'table' } = useParams();
   const currentTab = tabs.some(([id]) => id === routeTab) ? routeTab : 'table';
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedMatchday = Math.max(1, Number(searchParams.get('matchday')) || 1);
   const [savedManager] = useState(() => readManagerSelection(leagueId));
   const [detail, setDetail] = useState<LeagueDetail | null>(null);
   const [standings, setStandings] = useState<Standing[]>([]);
@@ -195,8 +282,6 @@ function LeaguePage() {
   const [pendingManagerClubId, setPendingManagerClubId] = useState<number | null>(null);
   const [managerTactics, setManagerTactics] = useState<Tactics>(savedManager.tactics);
   const [managerMatch, setManagerMatch] = useState<ManagerMatchSummary | null>(null);
-  const [managerBye, setManagerBye] = useState<number | null>(null);
-  const [managerState, setManagerState] = useState<ManagerState>(savedManager.managerState);
   const [upcomingMatches, setUpcomingMatches] = useState<Match[]>([]);
   const [matchPlayback, setMatchPlayback] = useState<MatchPlayback | null>(null);
   const [simulationBusy, setSimulationBusy] = useState(false);
@@ -205,7 +290,7 @@ function LeaguePage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.league(leagueId), api.table(leagueId), api.matches(leagueId)])
+    Promise.all([api.league(leagueId), api.table(leagueId, selectedMatchday), api.matches(leagueId)])
       .then(([league, table, matches]) => {
         if (cancelled) return;
         if (savedManager.clubId !== null && !league.clubs.some(club => Number(club.id) === savedManager.clubId)) {
@@ -221,17 +306,17 @@ function LeaguePage() {
       .catch(err => { if (!cancelled) setError(readableError(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [leagueId, refreshKey, savedManager]);
+  }, [leagueId, refreshKey, savedManager, selectedMatchday]);
 
   useEffect(() => {
     if (playbackMatchId === undefined || playbackComplete) return;
     const timer = window.setInterval(() => {
       setMatchPlayback(current => {
         if (!current) return null;
-        const minute = Math.min(90, current.minute + 1);
+        const minute = Math.min(90, Math.floor((Date.now() - current.startedAt) / 60000 * 90));
         return { ...current, minute, complete: minute === 90 };
       });
-    }, 125);
+    }, 250);
     return () => window.clearInterval(timer);
   }, [playbackMatchId, playbackComplete]);
 
@@ -242,33 +327,42 @@ function LeaguePage() {
       if (action === 'reset') {
         await api.resetLeague(leagueId);
         setManagerMatch(null);
-        setManagerBye(null);
         setMatchPlayback(null);
-        setManagerState(emptyManagerState);
-        saveManagerState(leagueId, emptyManagerState);
+        setSearchParams({ matchday: '1' }, { replace: true });
       } else if (action === 'next' && managerClubId !== null) {
         const result = await api.simulateWithManager(leagueId, managerClubId, managerTactics);
+        const lastMatchday = Math.max(1, ...upcomingMatches.map(match => match.matchday));
+        setSearchParams({ matchday: String(Math.min(lastMatchday, result.matchday + 1)) }, { replace: true });
         if (result.managerMatch) {
           const match = await api.match(result.managerMatch.matchId);
-          const lastGoal = match.goals[match.goals.length - 1];
-          const enrichedMatch = { ...result.managerMatch, lastGoalMinute: lastGoal?.minute };
-          const nextState = appendManagerMatch(managerState, enrichedMatch);
-          setManagerMatch(enrichedMatch);
-          setManagerState(nextState);
-          saveManagerState(leagueId, nextState);
-          setManagerBye(null);
+          setManagerMatch(result.managerMatch);
           setMatchPlayback({
             match,
             minute: 0,
             complete: false,
-            headline: generateHeadline(enrichedMatch, detail?.clubs ?? []),
+            startedAt: Date.now(),
           });
         } else {
           setManagerMatch(null);
-          setManagerBye(result.matchday);
         }
       } else {
-        await api.simulate(leagueId, action);
+        const result = await api.simulate(leagueId, action);
+        if (action === 'all') {
+          setSearchParams({ matchday: String(Math.max(1, ...upcomingMatches.map(match => match.matchday))) }, { replace: true });
+        } else if (result.matchday !== undefined) {
+          const lastMatchday = Math.max(1, ...upcomingMatches.map(match => match.matchday));
+          setSearchParams({ matchday: String(Math.min(lastMatchday, result.matchday + 1)) }, { replace: true });
+          const fixture = upcomingMatches.find(match => match.matchday === result.matchday);
+          if (fixture) {
+            const match = await api.match(fixture.id);
+            setMatchPlayback({
+              match,
+              minute: 0,
+              complete: false,
+              startedAt: Date.now(),
+            });
+          }
+        }
       }
       setRefreshKey(key => key + 1);
     } catch (err) { setError(readableError(err)); }
@@ -284,10 +378,7 @@ function LeaguePage() {
       setManagerPickerOpen(false);
       setPendingManagerClubId(null);
       setManagerMatch(null);
-      setManagerBye(null);
       setMatchPlayback(null);
-      setManagerState(emptyManagerState);
-      saveManagerState(leagueId, emptyManagerState);
       setError('');
     } catch (err) {
       setError(readableError(err));
@@ -299,7 +390,6 @@ function LeaguePage() {
       clearManagerClubId(leagueId);
       setManagerClubId(null);
       setManagerMatch(null);
-      setManagerBye(null);
       setMatchPlayback(null);
     } catch (err) {
       setError(readableError(err));
@@ -316,28 +406,30 @@ function LeaguePage() {
     ? league.total_matches ?? 0
     : detail.progress.total_matches ?? detail.progress.total ?? league.total_matches ?? 0;
   const progressPercent = totalMatches ? Math.round(playedMatches / totalMatches * 100) : typeof detail.progress === 'object' ? detail.progress.percentage ?? 0 : 0;
+  const totalMatchdays = detail.clubs.length % 2 === 0 ? 2 * (detail.clubs.length - 1) : 2 * detail.clubs.length;
+  const seasonComplete = totalMatches > 0 && playedMatches === totalMatches;
   const managedClub = detail.clubs.find(club => Number(club.id) === managerClubId);
-  const nextManagerMatch = upcomingMatches.find(match =>
-    match.played_at === null && [match.home_club_id, match.away_club_id].some(id => Number(id) === managerClubId),
-  );
-  const nextOpponentId = nextManagerMatch
-    ? Number(nextManagerMatch.home_club_id) === managerClubId ? nextManagerMatch.away_club_id : nextManagerMatch.home_club_id
-    : null;
-  const nextOpponent = detail.clubs.find(club => String(club.id) === String(nextOpponentId));
   return <PageMotion>
     <BackLink to="/" label="All leagues" />
     <section className="league-masthead">
       <div className="masthead-meta"><span className="status-pill"><span className="live-dot" /> SEASON IN PLAY</span><span>{league.season_label}</span><span>{detail.clubs.length} CLUBS</span></div>
       <div className="league-title-row"><div><h1>{league.name}</h1><p>{league.season_label} league competition</p></div><div className="season-progress-ring"><strong>{progressPercent}<small>%</small></strong><span>COMPLETE</span></div></div>
       <div className="season-progress"><span style={{ width: `${Math.min(100, progressPercent)}%` }} /></div>
-      <div className="progress-foot"><span>MATCHDAY {Math.max(1, Math.ceil(playedMatches / Math.max(1, detail.clubs.length / 2)) + 1)}</span><span>{playedMatches} / {totalMatches} MATCHES PLAYED</span></div>
+      <div className="progress-foot"><span>Matchday {Math.max(1, Math.ceil(playedMatches / Math.max(1, detail.clubs.length / 2)) + 1)}</span><span>{playedMatches} / {totalMatches} matches played</span></div>
     </section>
     <div className="league-toolbar"><nav className="league-tabs" aria-label="League sections">
-      {tabs.map(([id, label]) => <Link key={id} to={`/leagues/${leagueId}/${id}`} className={`league-tab${currentTab === id ? ' is-active' : ''}`}>{label}</Link>)}
+      {tabs.map(([id, label]) => <Link key={id} to={`/leagues/${leagueId}/${id}?matchday=${selectedMatchday}`} className={`league-tab${currentTab === id ? ' is-active' : ''}`}>{label}</Link>)}
     </nav>
     <div className="simulation-actions">
-      <button className="button button-secondary button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('next')}>{simulationBusy ? 'Simulating…' : managerClubId === null ? 'Simulate next' : 'Next matchday'} <span>▶</span></button>
-      {managerClubId === null && <button className="button button-quiet button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('all')}>Simulate all</button>}
+      <label className="active-matchday-picker">MATCHDAY
+        <select className="styled-select" value={selectedMatchday} onChange={event => setSearchParams({ matchday: event.target.value })}>
+          {Array.from({ length: totalMatchdays }, (_, index) => <option key={index + 1} value={index + 1}>{String(index + 1).padStart(2, '0')}</option>)}
+        </select>
+      </label>
+      {seasonComplete
+        ? <Link className="button button-secondary button-small" to={`/leagues/${leagueId}/awards?matchday=${totalMatchdays}`}>End season <span aria-hidden="true">🏆</span></Link>
+        : <button className="button button-secondary button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('next')}>{simulationBusy ? 'Simulating…' : managerClubId === null ? 'Simulate next' : 'Next matchday'}</button>}
+      {!seasonComplete && <button className="button button-quiet button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('all')}>Simulate season</button>}
       <button className="button button-quiet button-small" disabled={simulationBusy || !!matchPlayback} onClick={() => void runSimulation('reset')}>Reset</button>
       {managerClubId === null && <button className="button button-quiet button-small" disabled={!!matchPlayback} onClick={() => { setPendingManagerClubId(null); setManagerPickerOpen(true); }}>Choose your team</button>}
     </div></div>
@@ -346,15 +438,6 @@ function LeaguePage() {
         <ClubCrest club={managedClub} size="small" />
         <div><div className="eyebrow">YOUR TEAM</div><strong>{managedClub.name}</strong><small>Attack {managedClub.attack} · Defence {managedClub.defence}</small></div>
       </div>
-      <div className="manager-streak">
-        <span>SEASON AVG <strong>{managerState.matchesManaged ? managerState.averageRating.toFixed(1) : '—'}</strong></span>
-        <span>🔥 {managerState.currentStreak} <small>Best: {managerState.bestStreak}</small></span>
-      </div>
-      {nextManagerMatch && nextOpponent && <div className="manager-next-match">
-        <span>NEXT UP</span>
-        <strong>{String(nextManagerMatch.home_club_id) === String(managedClub.id) ? 'vs' : '@'} {nextOpponent.name}</strong>
-        <OpponentStrengthBadge yourClub={managedClub} opponent={nextOpponent} />
-      </div>}
       <label className="manager-tactics">TACTICS
         <select value={managerTactics} onChange={event => {
           const value = event.target.value;
@@ -381,10 +464,8 @@ function LeaguePage() {
     {managerMatch && managedClub && <div className="manager-result" role="status">
       <strong>Matchday {managerMatch.matchday}</strong>
       <span>{managedClub.name} {managerMatch.goalsFor}–{managerMatch.goalsAgainst}</span>
-      <span>{managerMatch.tactics} · xG {managerMatch.expectedGoalsFor.toFixed(2)}–{managerMatch.expectedGoalsAgainst.toFixed(2)} · Rating {managerMatchRating(managerMatch).toFixed(1)}</span>
-      <span className="manager-headline">{matchPlayback?.headline ?? (managerMatch.goalsFor === 0 && managerMatch.goalsAgainst === 0 ? 'A point apiece. Nobody fancied the goal.' : generateHeadline(managerMatch, detail.clubs))}</span>
+      <span>{managerMatch.tactics} · xG {managerMatch.expectedGoalsFor.toFixed(2)}–{managerMatch.expectedGoalsAgainst.toFixed(2)}</span>
     </div>}
-    {managerBye !== null && <div className="manager-result" role="status">Your team had no fixture on matchday {managerBye}.</div>}
     {managerPickerOpen && <section className="manager-picker" aria-labelledby="manager-picker-title">
       <div className="manager-picker-heading">
         <div><div className="eyebrow">MANAGER MODE</div><h2 id="manager-picker-title">Choose the team you want to manage</h2><p>Your choice is saved for this league in this browser. You can change it later by leaving manager mode.</p></div>
@@ -395,10 +476,10 @@ function LeaguePage() {
           <ClubCrest club={club} size="small" /><strong>{club.name}</strong><span>{club.short_name}</span><small>ATT {club.attack} · DEF {club.defence}</small>
         </button>)}
       </div>
-      <button type="button" className="button button-primary" disabled={pendingManagerClubId === null} onClick={startManaging}>Manage selected team <span aria-hidden="true">↗</span></button>
+      <button type="button" className="button button-primary" disabled={pendingManagerClubId === null} onClick={startManaging}>Manage selected team</button>
     </section>}
     {error && <ErrorNotice message={error} onRetry={() => { setError(''); setRefreshKey(k => k + 1); }} />}
-    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={Number(searchParams.get('matchday')) || 1} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} refreshKey={refreshKey} seasonComplete={playedMatches === totalMatches && totalMatches > 0} />}
+    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={selectedMatchday} onMatchdayChange={matchday => setSearchParams({ matchday: String(matchday) })} managerClubId={managerClubId} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} refreshKey={refreshKey} seasonComplete={seasonComplete} />}
     {matchPlayback && <MatchdayPlayback playback={matchPlayback} onClose={() => setMatchPlayback(null)} onFastForward={() => setMatchPlayback(current => current ? { ...current, minute: 90, complete: true } : null)} />}
   </PageMotion>;
 }
@@ -411,30 +492,6 @@ function managerTacticsStorageKey(leagueId: number | string) {
   return `pitch:manager-tactics:${leagueId}`;
 }
 
-function managerStateStorageKey(leagueId: number | string) {
-  return `pitch:manager-state:${leagueId}`;
-}
-
-function readManagerState(leagueId: number | string): ManagerState {
-  const stored = window.localStorage.getItem(managerStateStorageKey(leagueId));
-  if (!stored) return emptyManagerState;
-  const value: unknown = JSON.parse(stored);
-  if (
-    !value || typeof value !== 'object'
-    || !('currentStreak' in value) || typeof value.currentStreak !== 'number' || !Number.isInteger(value.currentStreak) || value.currentStreak < 0
-    || !('bestStreak' in value) || typeof value.bestStreak !== 'number' || !Number.isInteger(value.bestStreak) || value.bestStreak < value.currentStreak
-    || !('averageRating' in value) || typeof value.averageRating !== 'number' || !Number.isFinite(value.averageRating)
-    || !('matchesManaged' in value) || typeof value.matchesManaged !== 'number' || !Number.isInteger(value.matchesManaged) || value.matchesManaged < 0
-  ) {
-    throw new Error('The saved manager record is invalid. Reset the season to start a new record.');
-  }
-  return value as ManagerState;
-}
-
-function saveManagerState(leagueId: number | string, state: ManagerState) {
-  window.localStorage.setItem(managerStateStorageKey(leagueId), JSON.stringify(state));
-}
-
 function readManagerClubId(leagueId: number | string): number | null {
   const stored = window.localStorage.getItem(managerStorageKey(leagueId));
   if (stored === null) return null;
@@ -444,23 +501,23 @@ function readManagerClubId(leagueId: number | string): number | null {
   return Number(stored);
 }
 
-function readManagerSelection(leagueId: number | string): { clubId: number | null; tactics: Tactics; managerState: ManagerState; error: string } {
+function readManagerSelection(leagueId: number | string): { clubId: number | null; tactics: Tactics; error: string } {
   try {
     const clubId = readManagerClubId(leagueId);
     const storedTactics = clubId === null ? null : window.localStorage.getItem(managerTacticsStorageKey(leagueId));
     if (storedTactics !== null && !isTactics(storedTactics)) {
       throw new Error('The saved tactics are invalid. Choose your tactics again.');
     }
-    const managerState = readManagerState(leagueId);
-    return { clubId, tactics: storedTactics ?? 'balanced', managerState, error: '' };
+    return { clubId, tactics: storedTactics ?? 'balanced', error: '' };
   } catch (err) {
-    return { clubId: null, tactics: 'balanced', managerState: emptyManagerState, error: readableError(err) };
+    return { clubId: null, tactics: 'balanced', error: readableError(err) };
   }
 }
 
 function saveManagerClubId(leagueId: number | string, clubId: number) {
   saveManagerTactics(leagueId, 'balanced');
   window.localStorage.setItem(managerStorageKey(leagueId), String(clubId));
+  window.dispatchEvent(new Event('pitch:manager-team-changed'));
 }
 
 function saveManagerTactics(leagueId: number | string, tactics: Tactics) {
@@ -470,29 +527,22 @@ function saveManagerTactics(leagueId: number | string, tactics: Tactics) {
 function clearManagerClubId(leagueId: number | string) {
   window.localStorage.removeItem(managerStorageKey(leagueId));
   window.localStorage.removeItem(managerTacticsStorageKey(leagueId));
-  window.localStorage.removeItem(managerStateStorageKey(leagueId));
+  window.dispatchEvent(new Event('pitch:manager-team-changed'));
 }
 
 function isTactics(value: string): value is Tactics {
   return value === 'attacking' || value === 'balanced' || value === 'defensive';
 }
 
-function LeagueTab({ tab, leagueId, clubs, standings, matchday, topZone, bottomZone, refreshKey, seasonComplete }: { tab: string; leagueId: string; clubs: Club[]; standings: Standing[]; matchday: number; topZone: number; bottomZone: number; refreshKey: number; seasonComplete: boolean }) {
-  if (tab === 'fixtures') return <FixturesTab key={refreshKey} leagueId={leagueId} initialMatchday={matchday} totalMatchdays={clubs.length % 2 === 0 ? 2 * (clubs.length - 1) : 2 * clubs.length} />;
-  if (tab === 'match-centre') return <MatchCentreTab key={refreshKey} leagueId={leagueId} />;
-  if (tab === 'scorers') return <ScorersTab key={refreshKey} leagueId={leagueId} />;
-  if (tab === 'awards') return <AwardsTab key={refreshKey} leagueId={leagueId} seasonComplete={seasonComplete} />;
+function LeagueTab({ tab, leagueId, clubs, standings, matchday, onMatchdayChange, managerClubId, topZone, bottomZone, refreshKey, seasonComplete }: { tab: string; leagueId: string; clubs: Club[]; standings: Standing[]; matchday: number; onMatchdayChange: (matchday: number) => void; managerClubId: number | null; topZone: number; bottomZone: number; refreshKey: number; seasonComplete: boolean }) {
+  if (tab === 'fixtures') return <FixturesTab key={refreshKey} leagueId={leagueId} matchday={matchday} onMatchdayChange={onMatchdayChange} totalMatchdays={clubs.length % 2 === 0 ? 2 * (clubs.length - 1) : 2 * clubs.length} />;
+  if (tab === 'match-centre') return <MatchCentreTab key={refreshKey} leagueId={leagueId} matchday={matchday} managerClubId={managerClubId} />;
+  if (tab === 'scorers') return <ScorersTab key={refreshKey} leagueId={leagueId} matchday={matchday} />;
+  if (tab === 'awards') return <AwardsTab key={refreshKey} leagueId={leagueId} matchday={matchday} seasonComplete={seasonComplete} />;
   return <TableTab standings={standings} topZone={topZone} bottomZone={bottomZone} />;
 }
 
-function OpponentStrengthBadge({ yourClub, opponent }: { yourClub: Club; opponent: Club }) {
-  const yourRating = ((yourClub.attack ?? 0) + (yourClub.defence ?? 0)) / 2;
-  const opponentRating = ((opponent.attack ?? 0) + (opponent.defence ?? 0)) / 2;
-  const status = opponentRating < yourRating - 5 ? 'Underdog' : opponentRating > yourRating + 5 ? 'Tough test' : 'Even';
-  return <span className={`opponent-strength opponent-strength--${status.toLowerCase().replace(' ', '-')}`}><i />{status}</span>;
-}
-
-type MatchEventType = 'goal' | 'yellow' | 'red' | 'foul';
+type MatchEventType = 'goal' | 'yellow' | 'red' | 'foul' | 'substitution';
 type MatchEvent = {
   id: number | string;
   club_id: number | string;
@@ -500,14 +550,23 @@ type MatchEvent = {
   minute: number;
   eventType: MatchEventType;
   assist_player_name?: string | null;
+  player_off_name?: string;
 };
 
 function getMatchEvents(match: MatchDetail): MatchEvent[] {
   return [
-    ...match.goals.map(goal => ({ ...goal, eventType: 'goal' as const })),
-    ...match.yellow_cards.map(card => ({ ...card, eventType: 'yellow' as const })),
-    ...match.red_cards.map(card => ({ ...card, eventType: 'red' as const })),
-    ...match.fouls.map(foul => ({ ...foul, eventType: 'foul' as const })),
+    ...(match.goals ?? []).map(goal => ({ ...goal, eventType: 'goal' as const })),
+    ...(match.yellow_cards ?? []).map(card => ({ ...card, eventType: 'yellow' as const })),
+    ...(match.red_cards ?? []).map(card => ({ ...card, eventType: 'red' as const })),
+    ...(match.fouls ?? []).map(foul => ({ ...foul, eventType: 'foul' as const })),
+    ...(match.substitutions ?? []).map(substitution => ({
+      id: substitution.id,
+      club_id: substitution.club_id,
+      player_name: substitution.player_on_name,
+      player_off_name: substitution.player_off_name,
+      minute: substitution.minute,
+      eventType: 'substitution' as const,
+    })),
   ].sort((left, right) => left.minute - right.minute);
 }
 
@@ -515,6 +574,7 @@ function eventLabel(event: MatchEvent): string {
   if (event.eventType === 'goal') return event.assist_player_name ? `GOAL · ASSIST: ${event.assist_player_name}` : 'GOAL · UNASSISTED';
   if (event.eventType === 'yellow') return 'YELLOW CARD';
   if (event.eventType === 'red') return 'RED CARD';
+  if (event.eventType === 'substitution') return `SUBSTITUTION · ${event.player_name} on for ${event.player_off_name}`;
   return 'FOUL';
 }
 
@@ -528,7 +588,34 @@ function getManOfTheMatch(players: MatchPlayerStats[]): MatchPlayerStats | undef
     matchPlayerScore(b) - matchPlayerScore(a)
     || b.minutes_played - a.minutes_played
     || a.player_name.localeCompare(b.player_name),
-  )[0];
+  ).find(player => player.minutes_played > 0);
+}
+
+function MatchLineup({ clubName, players, substitutions }: { clubName: string; players: MatchPlayerStats[]; substitutions: MatchDetail['substitutions'] }) {
+  const starters = players.filter(player => player.is_starter);
+  const legacyStarters = [...players]
+    .filter(player => player.minutes_played > 0)
+    .sort((a, b) => ['GK', 'DEF', 'MID', 'FWD'].indexOf(a.position) - ['GK', 'DEF', 'MID', 'FWD'].indexOf(b.position))
+    .slice(0, 11);
+  const startingEleven = starters.length ? starters : legacyStarters;
+  const startingIds = new Set(startingEleven.map(player => String(player.player_id)));
+  const bench = players.filter(player => !startingIds.has(String(player.player_id)));
+  const usedSubstitutes = new Set(substitutions.map(substitution => String(substitution.player_on_id)));
+
+  return <section className="lineup-team">
+    <h4>{clubName} <small>STARTING XI</small></h4>
+    <ol className="lineup-list">{startingEleven.map(player => {
+      const subbedOff = substitutions.find(substitution => String(substitution.player_off_id) === String(player.player_id));
+      return <li key={player.player_id}><span>{player.position}</span><strong>{player.player_name}</strong>{subbedOff ? <small>OFF {subbedOff.minute}&apos;</small> : player.red_cards > 0 ? <small>SENT OFF</small> : null}</li>;
+    })}</ol>
+    <h4 className="lineup-subheading">BENCH</h4>
+    {bench.length ? <ul className="lineup-list lineup-list--bench">{bench.map(player => <li key={player.player_id}>
+      <span>{player.position}</span><strong>{player.player_name}</strong><small>{usedSubstitutes.has(String(player.player_id)) ? 'SUB ON' : player.minutes_played > 0 ? `${player.minutes_played} MIN` : 'UNUSED'}</small>
+    </li>)}</ul> : <p className="lineup-empty">No bench players recorded.</p>}
+    {substitutions.length > 0 && <div className="substitution-list"><strong>SUBSTITUTIONS</strong>{substitutions.map(substitution =>
+      <span key={substitution.id}><b>{substitution.minute}&apos;</b> {substitution.player_on_name} <i>ON</i> for {substitution.player_off_name} <i>OFF</i></span>,
+    )}</div>}
+  </section>;
 }
 
 function MatchdayPlayback({ playback, onClose, onFastForward }: { playback: MatchPlayback; onClose: () => void; onFastForward: () => void }) {
@@ -555,13 +642,12 @@ function MatchdayPlayback({ playback, onClose, onFastForward }: { playback: Matc
       <div className="matchday-progress" role="progressbar" aria-label="Match minute" aria-valuemin={0} aria-valuemax={90} aria-valuenow={minute}><span style={{ width: `${minute / 90 * 100}%` }} /></div>
       <div className="matchday-live-feed" aria-live="polite">
         {visibleEvents.length ? [...visibleEvents].reverse().map(event => <div key={`${event.eventType}-${event.id}`} className={`live-event live-event--${event.eventType}`}>
-          <b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{eventLabel(event)}</small></span><i>{event.eventType === 'goal' ? '⚽' : event.eventType === 'yellow' ? '🟨' : event.eventType === 'red' ? '🟥' : '⚑'}</i>
+          <b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{eventLabel(event)}</small></span><i>{event.eventType === 'goal' ? '⚽' : event.eventType === 'yellow' ? '🟨' : event.eventType === 'red' ? '🟥' : event.eventType === 'substitution' ? '↔' : '⚑'}</i>
         </div>) : <p className="live-commentary">{minute < 20 ? 'The teams are feeling each other out. No clear chances yet.' : 'A cagey contest so far. The crowd is waiting for a breakthrough.'}</p>}
         {!complete && latestEvent && <p className="live-commentary">{latestEvent.eventType === 'goal' ? `GOAL! ${latestEvent.player_name}${latestEvent.assist_player_name ? ` finishes a move created by ${latestEvent.assist_player_name}` : ' finds the net'}.` : latestEvent.eventType === 'yellow' ? `${latestEvent.player_name} is booked.` : latestEvent.eventType === 'red' ? `${latestEvent.player_name} is sent off.` : `${latestEvent.player_name} gives away a foul.`}</p>}
       </div>
       {complete && <div className="live-fulltime">
-        <p>{playback.headline}</p>
-        {manOfTheMatch && <div className="live-motm"><img src="/matchday/motm.jpg" alt="" /><span><small>PLAYER OF THE MATCH</small><strong>{manOfTheMatch.player_name}</strong></span></div>}
+        {manOfTheMatch && <div className="live-motm"><img src="/matchday/motm.jpg" alt="" /><span><small>PLAYER OF THE MATCH</small><strong>{manOfTheMatch.player_name} <i className="motm-badge">MOTM</i></strong></span></div>}
         {homeStats && awayStats && <div className="live-fulltime-stats"><span>Shots <b>{homeStats.shots}–{awayStats.shots}</b></span><span>Corners <b>{homeStats.corners}–{awayStats.corners}</b></span><span>Saves <b>{homeStats.saves}–{awayStats.saves}</b></span></div>}
       </div>}
       <footer className="matchday-live-actions">
@@ -572,8 +658,8 @@ function MatchdayPlayback({ playback, onClose, onFastForward }: { playback: Matc
   </div>;
 }
 
-function SectionTitle({ kicker, title, detail }: { kicker: string; title: string; detail: string }) {
-  return <div className="content-heading"><div><div className="eyebrow">{kicker}</div><h2>{title}</h2></div><p>{detail}</p></div>;
+function SectionTitle({ title, detail }: { title: string; detail: string }) {
+  return <div className="content-heading"><h2>{title}</h2><p>{detail}</p></div>;
 }
 
 function TableTab({ standings, topZone, bottomZone }: { standings: Standing[]; topZone: number; bottomZone: number }) {
@@ -607,8 +693,8 @@ function TableTab({ standings, topZone, bottomZone }: { standings: Standing[]; t
     return <td key={field} className={className}>{field === 'Pts' ? <strong>{displayValue}</strong> : displayValue}</td>;
   };
 
-  return <section className="tab-panel"><SectionTitle kicker="LEAGUE TABLE" title="Standings" detail="Ranked by points, goal difference and goals scored." />
-    <div className="legend"><span><i className="legend-top" />Top zone</span><span><i className="legend-bottom" />Bottom zone</span><span className="legend-right">P Played · GD Goal difference · Pts Points</span></div>
+  return <section className="tab-panel"><SectionTitle title="Standings" detail="Ranked by points, goal difference and goals scored." />
+    <div className="legend"><span><i className="legend-top" />Top zone</span><span><i className="legend-bottom" />Bottom zone</span></div>
     {standings.length ? <div className="table-wrap"><table className="standings-table"><thead><tr><th className="align-left">POS</th><th className="align-left">CLUB</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th className="points-col">PTS</th><th className="form-col">FORM</th></tr></thead>
       <tbody>{standings.map((row, index) => {
         const clubId = row.club_id || row.id;
@@ -626,23 +712,22 @@ function FormDots({ form }: { form: string }) {
   return <span className="form-dots" aria-label={`Form: ${form}`}>{form.split('').map((result, i) => <i key={`${result}-${i}`} className={`form-${result.toLowerCase()}`} title={result} />)}</span>;
 }
 
-function FixturesTab({ leagueId, initialMatchday, totalMatchdays }: { leagueId: string; initialMatchday: number; totalMatchdays: number }) {
-  const [matchday, setMatchday] = useState(initialMatchday);
+function FixturesTab({ leagueId, matchday, onMatchdayChange, totalMatchdays }: { leagueId: string; matchday: number; onMatchdayChange: (matchday: number) => void; totalMatchdays: number }) {
   const [matches, setMatches] = useState<Match[]>([]);
   const [error, setError] = useState('');
   useEffect(() => { let cancelled = false; api.matches(leagueId, matchday).then(data => { if (!cancelled) { setMatches(data); setError(''); } }).catch(e => { if (!cancelled) setError(readableError(e)); }); return () => { cancelled = true; }; }, [leagueId, matchday]);
-  return <section className="tab-panel"><div className="content-heading"><div><div className="eyebrow">THE ROAD TO GLORY</div><h2>Fixtures <span className="heading-count">/ MATCHDAY</span></h2></div><div className="matchday-stepper"><button type="button" aria-label="Previous matchday" disabled={matchday <= 1} onClick={() => setMatchday(day => Math.max(1, day - 1))}>‹</button><label className="matchday-select">MATCHDAY<select value={matchday} onChange={e => setMatchday(Number(e.target.value))}>{Array.from({ length: totalMatchdays }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select></label><button type="button" aria-label="Next matchday" disabled={matchday >= totalMatchdays} onClick={() => setMatchday(day => Math.min(totalMatchdays, day + 1))}>›</button></div></div>
-    {error && <ErrorNotice message={error} />}<MatchList matches={matches} leagueId={leagueId} />
+  return <section className="tab-panel"><div className="content-heading"><div><h2>Fixtures <span className="heading-count">/ Matchday {String(matchday).padStart(2, '0')}</span></h2></div><div className="matchday-stepper"><button type="button" disabled={matchday <= 1} onClick={() => onMatchdayChange(Math.max(1, matchday - 1))}>Previous</button><label className="matchday-select">Matchday<select value={matchday} onChange={e => onMatchdayChange(Number(e.target.value))}>{Array.from({ length: totalMatchdays }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select></label><button type="button" disabled={matchday >= totalMatchdays} onClick={() => onMatchdayChange(Math.min(totalMatchdays, matchday + 1))}>Next</button></div></div>
+    {error && <ErrorNotice message={error} />}
+    <MatchList matches={matches} leagueId={leagueId} />
   </section>;
 }
 
 function MatchList({ matches, leagueId }: { matches: Match[]; leagueId?: number | string }) {
-  return matches.length ? <div className="match-list">{matches.map(match => <Link className="match-card" key={match.id} to={`/leagues/${leagueId || match.league_id || ''}/match-centre?match=${match.id}`}>
+  return matches.length ? <div className="match-list">{matches.map(match => <Link className="match-card" key={match.id} to={`/leagues/${leagueId || match.league_id || ''}/match-centre?matchday=${match.matchday}&match=${match.id}`}>
     <span className="match-kickoff">{match.played_at ? new Date(match.played_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) : `MD ${match.matchday}`}</span>
     <MatchTeam name={match.home_club_name} shortName={match.home_short_name} id={match.home_club_id} primary={match.home_colour_primary} secondary={match.home_colour_secondary} align="right" />
     <span className={`match-score${match.home_goals === null ? ' upcoming' : ''}`}>{match.home_goals ?? '–'} <i>:</i> {match.away_goals ?? '–'}</span>
     <MatchTeam name={match.away_club_name} shortName={match.away_short_name} id={match.away_club_id} primary={match.away_colour_primary} secondary={match.away_colour_secondary} />
-    <span className="match-arrow">↗</span>
     {match.goal_events?.length ? <span className="match-event-summary">{match.goal_events.map((goal, index) => <span key={`${goal.minute}-${index}`}><strong>{goal.player_name} {goal.minute}&apos;</strong>{goal.assist_player_name ? ` · Assist: ${goal.assist_player_name}` : ' · Unassisted'}</span>)}</span> : null}
     {match.home_xg !== null && match.home_xg !== undefined ? <span className="match-stat-summary">xG {Number(match.home_xg).toFixed(2)} – {Number(match.away_xg).toFixed(2)} · YC {match.yellow_card_count ?? 0} · RC {match.red_card_count ?? 0}</span> : null}
   </Link>)}</div> : <EmptyPanel title="No fixtures in this round" text="Select another matchday or simulate to reveal what's next." />;
@@ -653,51 +738,72 @@ function MatchTeam({ name, shortName, id, primary, secondary, align = 'left' }: 
   return <span className={`match-team match-team--${align}`}>{align === 'left' && <ClubCrest club={club} size="small" />}<strong>{club.name}</strong>{align === 'right' && <ClubCrest club={club} size="small" />}</span>;
 }
 
-function MatchCentreTab({ leagueId }: { leagueId: string }) {
+function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: string; matchday: number; managerClubId: number | null }) {
   const [searchParams] = useSearchParams();
   const requestedMatch = searchParams.get('match');
   const [matches, setMatches] = useState<Match[]>([]);
   const [selected, setSelected] = useState('');
-  const [match, setMatch] = useState<MatchDetail | null>(null);
+  const [loadedMatch, setMatch] = useState<MatchDetail | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { api.matches(leagueId).then(data => { setMatches(data); setSelected(String(data.find(game => String(game.id) === requestedMatch)?.id ?? data[0]?.id ?? '')); }).catch(e => setError(readableError(e))); }, [leagueId, requestedMatch]);
-  useEffect(() => { if (!selected) return; api.match(selected).then(setMatch).catch(e => setError(readableError(e))); }, [selected]);
-  const homeGoals = match?.goals?.filter(goal => String(goal.club_id) === String(match.home_club_id)) ?? [];
-  const awayGoals = match?.goals?.filter(goal => String(goal.club_id) === String(match.away_club_id)) ?? [];
-  const homeEvents = [
-    ...homeGoals.map(goal => ({ ...goal, eventType: 'goal' as const })),
-    ...(match?.yellow_cards ?? []).filter(card => String(card.club_id) === String(match?.home_club_id)).map(card => ({ ...card, eventType: 'yellow' as const })),
-    ...(match?.red_cards ?? []).filter(card => String(card.club_id) === String(match?.home_club_id)).map(card => ({ ...card, eventType: 'red' as const })),
-    ...(match?.fouls ?? []).filter(foul => String(foul.club_id) === String(match?.home_club_id)).map(foul => ({ ...foul, eventType: 'foul' as const })),
-  ].sort((left, right) => left.minute - right.minute);
-  const awayEvents = [
-    ...awayGoals.map(goal => ({ ...goal, eventType: 'goal' as const })),
-    ...(match?.yellow_cards ?? []).filter(card => String(card.club_id) === String(match?.away_club_id)).map(card => ({ ...card, eventType: 'yellow' as const })),
-    ...(match?.red_cards ?? []).filter(card => String(card.club_id) === String(match?.away_club_id)).map(card => ({ ...card, eventType: 'red' as const })),
-    ...(match?.fouls ?? []).filter(foul => String(foul.club_id) === String(match?.away_club_id)).map(foul => ({ ...foul, eventType: 'foul' as const })),
-  ].sort((left, right) => left.minute - right.minute);
+  useEffect(() => {
+    let cancelled = false;
+    api.matches(leagueId, matchday).then(data => {
+      if (cancelled) return;
+      setMatches(data);
+      const requested = data.find(game => String(game.id) === requestedMatch);
+      const managed = data.find(game => [game.home_club_id, game.away_club_id].some(id => Number(id) === managerClubId));
+      setSelected(String(requested?.id ?? managed?.id ?? data[0]?.id ?? ''));
+    }).catch(e => { if (!cancelled) setError(readableError(e)); });
+    return () => { cancelled = true; };
+  }, [leagueId, matchday, managerClubId, requestedMatch]);
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    api.match(selected).then(data => { if (!cancelled) { setMatch(data); setError(''); } }).catch(e => { if (!cancelled) setError(readableError(e)); });
+    return () => { cancelled = true; };
+  }, [selected]);
+  const match = loadedMatch && String(loadedMatch.id) === selected ? loadedMatch : null;
+  const allMatchEvents = match ? getMatchEvents(match) : [];
+  const homeEvents = allMatchEvents.filter(event => String(event.club_id) === String(match?.home_club_id));
+  const awayEvents = allMatchEvents.filter(event => String(event.club_id) === String(match?.away_club_id));
   const teamStat = (clubId: number | string) => match?.team_stats?.find(stat => String(stat.club_id) === String(clubId));
   const homeStats = match ? teamStat(match.home_club_id) : undefined;
   const awayStats = match ? teamStat(match.away_club_id) : undefined;
-  const manOfTheMatch = match ? getManOfTheMatch(match.player_stats) : undefined;
-  return <section className="tab-panel"><SectionTitle kicker="UNDER THE LIGHTS" title="Match centre" detail="The moments that make the match." />
+  const manOfTheMatch = match ? getManOfTheMatch(match.player_stats ?? []) : undefined;
+  const homeSubstitutions = match?.substitutions?.filter(substitution => String(substitution.club_id) === String(match.home_club_id)) ?? [];
+  const awaySubstitutions = match?.substitutions?.filter(substitution => String(substitution.club_id) === String(match.away_club_id)) ?? [];
+  const homePlayers = match?.player_stats?.filter(player => String(player.club_id) === String(match.home_club_id)) ?? [];
+  const awayPlayers = match?.player_stats?.filter(player => String(player.club_id) === String(match.away_club_id)) ?? [];
+  const isMatchPlayed = match?.home_goals !== null && match?.home_goals !== undefined;
+  return <section className="tab-panel"><SectionTitle title="Match centre" detail="The moments that make the match." />
     {error && <ErrorNotice message={error} />}
-    <label className="match-picker">CHOOSE A FIXTURE<select value={selected} onChange={e => setSelected(e.target.value)}>{matches.map(game => <option key={game.id} value={game.id}>{game.home_club_name} {game.home_goals ?? '–'} : {game.away_goals ?? '–'} {game.away_club_name}</option>)}</select></label>
+    <label className="match-picker">CHOOSE A FIXTURE<select className="styled-select" value={selected} onChange={e => setSelected(e.target.value)} disabled={!matches.length}>{matches.length
+      ? matches.map(game => <option key={game.id} value={game.id}>{game.home_club_name} {game.home_goals ?? '–'} : {game.away_goals ?? '–'} {game.away_club_name}</option>)
+      : <option value="">No fixtures for this matchday</option>}</select></label>
     {match ? <div className="match-report">
       <div className="report-scoreboard"><span className="report-round">MATCHDAY {match.matchday}</span><div className="report-teams"><ReportTeam name={match.home_club_name} id={match.home_club_id} shortName={match.home_short_name} primary={match.home_colour_primary} secondary={match.home_colour_secondary} /><div className="report-score">{match.home_goals ?? '–'}<span>:</span>{match.away_goals ?? '–'}</div><ReportTeam name={match.away_club_name} id={match.away_club_id} shortName={match.away_short_name} primary={match.away_colour_primary} secondary={match.away_colour_secondary} /></div><span className="report-date">{match.played_at ? new Date(match.played_at).toLocaleString() : 'KICK-OFF PENDING'}</span></div>
-      {manOfTheMatch && <div className="report-motm"><img src="/matchday/motm.jpg" alt="" /><span><small>MAN OF THE MATCH</small><strong>{manOfTheMatch.player_name}</strong><em>{manOfTheMatch.goals} goals · {manOfTheMatch.assists} assists · {manOfTheMatch.key_passes} key passes</em></span></div>}
-      <div className="timeline"><div className="timeline-column">{homeEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : 'FOUL'}</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : 'FOUL'}</small></span></div>)}</div></div>
-      {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
-      {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
-        ['Expected goals (xG)', Number(match.home_xg ?? homeStats.xg).toFixed(2), Number(match.away_xg ?? awayStats.xg).toFixed(2)],
-        ['Possession', `${homeStats.possession}%`, `${awayStats.possession}%`],
-        ['Shots', homeStats.shots, awayStats.shots],
-        ['Shots on target', homeStats.shots_on_target, awayStats.shots_on_target],
-        ['Corners', homeStats.corners, awayStats.corners],
-        ['Fouls', homeStats.fouls, awayStats.fouls],
-        ['Saves', homeStats.saves, awayStats.saves],
-      ].map(([label, homeValue, awayValue]) => <div className="match-stats-row" key={label}><strong>{homeValue}</strong><span>{label}</span><strong>{awayValue}</strong></div>)}</section>}
-      {match.player_stats?.length ? <section className="player-match-stats"><h3>Player match stats</h3><div className="player-match-stats-wrap"><table><thead><tr><th>PLAYER</th><th>MIN</th><th>G</th><th>A</th><th>SH</th><th>SOT</th><th>xG</th><th>KP</th><th>T</th><th>F</th><th>YC</th><th>RC</th></tr></thead><tbody>{match.player_stats.map(player => <tr key={player.player_id}><td>{player.player_name} <small>{player.position}</small></td><td>{player.minutes_played}</td><td>{player.goals}</td><td>{player.assists}</td><td>{player.shots}</td><td>{player.shots_on_target}</td><td>{Number(player.xg).toFixed(2)}</td><td>{player.key_passes}</td><td>{player.tackles}</td><td>{player.fouls}</td><td>{player.yellow_cards}</td><td>{player.red_cards}</td></tr>)}</tbody></table></div></section> : null}
+      {!isMatchPlayed ? <div className="pre-match-preview">
+        <img src="/matchday/kickoff.jpg" alt="" />
+        <div><div className="eyebrow">FIXTURE PREVIEW</div><h3>Ready for kick-off</h3><p>Line-ups, match events and statistics will appear after this matchday is simulated.</p></div>
+      </div> : <>
+        {manOfTheMatch && <div className="report-motm"><img src="/matchday/motm.jpg" alt="" /><span><small>MAN OF THE MATCH</small><strong>{manOfTheMatch.player_name} <i className="motm-badge">MOTM</i></strong><em>{manOfTheMatch.goals} goals · {manOfTheMatch.assists} assists · {manOfTheMatch.key_passes} key passes</em></span></div>}
+        <section className="match-lineups"><h3>Team line-ups</h3><div className="lineup-grid">
+          <MatchLineup clubName={match.home_club_name} players={homePlayers} substitutions={homeSubstitutions} />
+          <MatchLineup clubName={match.away_club_name} players={awayPlayers} substitutions={awaySubstitutions} />
+        </div></section>
+        <div className="timeline"><div className="timeline-column">{homeEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div></div>
+        {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && !match.substitutions?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
+        {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
+          ['Expected goals (xG)', Number(match.home_xg ?? homeStats.xg).toFixed(2), Number(match.away_xg ?? awayStats.xg).toFixed(2)],
+          ['Possession', `${homeStats.possession}%`, `${awayStats.possession}%`],
+          ['Shots', homeStats.shots, awayStats.shots],
+          ['Shots on target', homeStats.shots_on_target, awayStats.shots_on_target],
+          ['Corners', homeStats.corners, awayStats.corners],
+          ['Fouls', homeStats.fouls, awayStats.fouls],
+          ['Saves', homeStats.saves, awayStats.saves],
+        ].map(([label, homeValue, awayValue]) => <div className="match-stats-row" key={label}><strong>{homeValue}</strong><span>{label}</span><strong>{awayValue}</strong></div>)}</section>}
+        {match.player_stats?.length ? <section className="player-match-stats"><h3>Player match stats</h3><div className="player-match-stats-wrap"><table><thead><tr><th>PLAYER</th><th>MIN</th><th>G</th><th>A</th><th>SH</th><th>SOT</th><th>xG</th><th>KP</th><th>T</th><th>F</th><th>YC</th><th>RC</th></tr></thead><tbody>{match.player_stats.map(player => <tr key={player.player_id}><td>{player.player_name} <small>{player.position}</small></td><td>{player.minutes_played}</td><td>{player.goals}</td><td>{player.assists}</td><td>{player.shots}</td><td>{player.shots_on_target}</td><td>{Number(player.xg).toFixed(2)}</td><td>{player.key_passes}</td><td>{player.tackles}</td><td>{player.fouls}</td><td>{player.yellow_cards}</td><td>{player.red_cards}</td></tr>)}</tbody></table></div></section> : null}
+      </>}
     </div> : <EmptyPanel title="Pick a match to relive" text="Choose any fixture to see the score and goal timeline." />}
   </section>;
 }
@@ -706,10 +812,10 @@ function ReportTeam({ name, id, shortName, primary, secondary }: { name: string;
   return <div className="report-team"><ClubCrest club={{ id, name, short_name: shortName, colour_primary: primary, colour_secondary: secondary }} size="large" /><strong>{name}</strong></div>;
 }
 
-function ScorersTab({ leagueId }: { leagueId: string }) {
+function ScorersTab({ leagueId, matchday }: { leagueId: string; matchday: number }) {
   const [players, setPlayers] = useState<PlayerStat[]>([]);
   const [error, setError] = useState('');
-  useEffect(() => { api.playerStats(leagueId).then(setPlayers).catch(e => setError(readableError(e))); }, [leagueId]);
+  useEffect(() => { api.playerStats(leagueId, matchday).then(setPlayers).catch(e => setError(readableError(e))); }, [leagueId, matchday]);
   const leaderboards = [
     { label: 'Goals', key: 'goals' as const, suffix: 'G' },
     { label: 'Assists', key: 'assists' as const, suffix: 'A' },
@@ -722,7 +828,7 @@ function ScorersTab({ leagueId }: { leagueId: string }) {
     { label: 'Key passes', key: 'key_passes' as const, suffix: 'KP' },
     { label: 'Tackles', key: 'tackles' as const, suffix: 'T' },
   ];
-  return <section className="tab-panel"><SectionTitle kicker="LEAGUE LEADERS" title="Player statistics" detail="Season totals for attacking output, passing and discipline." />
+  return <section className="tab-panel"><SectionTitle title="Player statistics" detail="Season totals for attacking output, passing and discipline." />
     {error && <ErrorNotice message={error} />}
     {players.length ? <div className="leaderboards">{leaderboards.map(({ label, key, suffix }) => {
       const rows = [...players].sort((a, b) => Number(b[key]) - Number(a[key]) || b.goals - a.goals || a.player_name.localeCompare(b.player_name)).filter(player => Number(player[key]) > 0).slice(0, 5);
@@ -737,16 +843,16 @@ function seasonPlayerScore(player: PlayerStat): number {
     + player.tackles * 0.08 + player.minutes / 1000 - player.red_cards * 1.5 - player.yellow_cards * 0.2;
 }
 
-function AwardsTab({ leagueId, seasonComplete }: { leagueId: string; seasonComplete: boolean }) {
+function AwardsTab({ leagueId, matchday, seasonComplete }: { leagueId: string; matchday: number; seasonComplete: boolean }) {
   const [players, setPlayers] = useState<PlayerStat[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {
     let cancelled = false;
-    api.playerStats(leagueId)
+    api.playerStats(leagueId, matchday)
       .then(data => { if (!cancelled) setPlayers(data); })
       .catch(err => { if (!cancelled) setError(readableError(err)); });
     return () => { cancelled = true; };
-  }, [leagueId]);
+  }, [leagueId, matchday]);
 
   const rankedPlayers = [...players].sort((a, b) =>
     seasonPlayerScore(b) - seasonPlayerScore(a)
@@ -756,10 +862,10 @@ function AwardsTab({ leagueId, seasonComplete }: { leagueId: string; seasonCompl
   );
   const teamOfTheSeason = rankedPlayers.slice(0, 11);
   const playerOfTheYear = rankedPlayers[0];
-  return <section className="tab-panel"><SectionTitle kicker={seasonComplete ? 'SEASON HONOURS' : 'THE AWARDS RACE'} title="Season awards" detail="Form and contribution decide the honours." />
+  return <section className="tab-panel"><SectionTitle title={seasonComplete ? 'Season awards' : 'Potential season awards'} detail="Based on player stats through the selected matchday." />
     {error && <ErrorNotice message={error} />}
-    {playerOfTheYear && <section className="poty-card"><img src="/matchday/motm.jpg" alt="" /><div><div className="eyebrow">{seasonComplete ? 'PLAYER OF THE YEAR' : 'CURRENT PLAYER OF THE YEAR LEADER'}</div><h3>{playerOfTheYear.player_name}</h3><p>{playerOfTheYear.club_name} · {playerOfTheYear.goals} goals · {playerOfTheYear.assists} assists</p></div><strong>{seasonPlayerScore(playerOfTheYear).toFixed(1)}<small> IMPACT</small></strong></section>}
-    <section className="team-of-season"><div className="team-of-season-heading"><div><div className="eyebrow">{seasonComplete ? 'THE XI' : 'PROVISIONAL XI'}</div><h3>Team of the season</h3></div><span>{teamOfTheSeason.length} / 11</span></div>
+    {playerOfTheYear && <section className="poty-card"><img src="/matchday/motm.jpg" alt="" /><div><div className="eyebrow">{seasonComplete ? 'PLAYER OF THE SEASON' : 'POTENTIAL PLAYER OF THE SEASON'}</div><h3>{playerOfTheYear.player_name}</h3><p>{playerOfTheYear.club_name} · {playerOfTheYear.goals} goals · {playerOfTheYear.assists} assists</p></div><strong>{seasonPlayerScore(playerOfTheYear).toFixed(1)}<small> IMPACT</small></strong></section>}
+    <section className="team-of-season"><div className="team-of-season-heading"><div><div className="eyebrow">{seasonComplete ? 'FINAL XI' : 'POTENTIAL XI'}</div><h3>{seasonComplete ? 'Team of the season' : 'Potential team of the season'}</h3></div><span>{teamOfTheSeason.length} / 11</span></div>
       {teamOfTheSeason.length ? <div className="award-player-grid">{teamOfTheSeason.map((player, index) => <Link className="award-player" to={`/clubs/${player.club_id}`} key={player.player_id}><span>{String(index + 1).padStart(2, '0')}</span><strong>{player.player_name}</strong><small>{player.club_name}</small><em>{player.goals} G · {player.assists} A</em></Link>)}</div> : <EmptyPanel title="The awards are waiting" text="Play some fixtures to see the season's standout players." />}
     </section>
   </section>;
@@ -778,10 +884,10 @@ function ClubPage() {
   </PageMotion>;
 }
 
-function BackLink({ to, label }: { to: string; label: string }) { return <Link className="back-link" to={to}><span>←</span> {label}</Link>; }
+function BackLink({ to, label }: { to: string; label: string }) { return <Link className="back-link" to={to}>{label}</Link>; }
 function ErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }) { return <div className="error-notice" role="alert"><span>!</span><div><strong>We hit a snag.</strong><p>{message}</p></div>{onRetry && <button onClick={onRetry}>Try again ↻</button>}</div>; }
 function Loading({ label }: { label: string }) { return <div className="loading-state"><span className="loading-spinner" /><p>{label}…</p></div>; }
-function EmptyPanel({ title, text }: { title: string; text: string }) { return <div className="empty-panel"><span>✳</span><h3>{title}</h3><p>{text}</p></div>; }
-function NotFound() { return <PageMotion className="empty-state"><div className="empty-icon">404</div><h2>That page isn't in this fixture.</h2><Link to="/" className="button button-secondary">Back to leagues ↗</Link></PageMotion>; }
+function EmptyPanel({ title, text }: { title: string; text: string }) { return <div className="empty-panel"><h3>{title}</h3><p>{text}</p></div>; }
+function NotFound() { return <PageMotion className="empty-state"><h2>That page isn't in this fixture.</h2><Link to="/" className="button button-secondary">Back to leagues</Link></PageMotion>; }
 
 export default App;

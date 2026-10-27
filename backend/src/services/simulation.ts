@@ -121,12 +121,19 @@ export async function simulateMatchday(
     for (const stats of result.playerStats) {
       await client.query(
         `INSERT INTO player_match_stats
-          (match_id, club_id, player_id, minutes_played, shots, shots_on_target, xg, key_passes, tackles)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          (match_id, club_id, player_id, is_starter, minutes_played, shots, shots_on_target, xg, key_passes, tackles)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
-          match.id, stats.clubId, stats.playerId, stats.minutesPlayed,
+          match.id, stats.clubId, stats.playerId, stats.isStarter, stats.minutesPlayed,
           stats.shots, stats.shotsOnTarget, stats.xg, stats.keyPasses, stats.tackles,
         ],
+      );
+    }
+    for (const substitution of result.substitutions) {
+      await client.query(
+        `INSERT INTO substitutions (match_id, club_id, player_off_id, player_on_id, minute)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [match.id, substitution.clubId, substitution.playerOffId, substitution.playerOnId, substitution.minute],
       );
     }
 

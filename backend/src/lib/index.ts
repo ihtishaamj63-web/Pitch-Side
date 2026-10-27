@@ -32,6 +32,7 @@ export type {
   SimulationPlayer,
   SimulationClub,
   SquadPlayer,
+  Substitution,
   TeamMatchStats,
   Tactics,
   YellowCard,

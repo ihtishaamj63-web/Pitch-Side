@@ -52,14 +52,17 @@ export interface ManagerSimulationResponse {
 export const api = {
   leagues: () => request<LeagueSummary[]>('/api/leagues'),
   createLeague: (data: CreateLeaguePayload) => request<{ id: number | string }>('/api/leagues', json(data)),
+  deleteLeague: (id: number | string) => request<void>(`/api/leagues/${id}`, { method: 'DELETE' }),
   league: (id: number | string) => request<LeagueDetail>(`/api/leagues/${id}`),
-  table: (id: number | string) => request<Standing[]>(`/api/leagues/${id}/table`),
+  table: (id: number | string, upToMatchday?: number) =>
+    request<Standing[]>(`/api/leagues/${id}/table${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
   matches: (id: number | string, matchday?: number) =>
     request<Match[]>(`/api/leagues/${id}/matches${matchday ? `?matchday=${matchday}` : ''}`),
   match: (id: number | string) => request<MatchDetail>(`/api/matches/${id}`),
-  playerStats: (id: number | string) => request<PlayerStat[]>(`/api/leagues/${id}/scorers`),
+  playerStats: (id: number | string, upToMatchday?: number) =>
+    request<PlayerStat[]>(`/api/leagues/${id}/scorers${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
   simulate: (id: number | string, action: 'next' | 'all') =>
-    request<unknown>(`/api/leagues/${id}/simulate/${action}`, json()),
+    request<{ matchday?: number; matchdaysPlayed?: number; matchesPlayed?: number }>(`/api/leagues/${id}/simulate/${action}`, json()),
   simulateWithManager: (id: number | string, clubId: number, tactics: Tactics) =>
     request<ManagerSimulationResponse>(
       `/api/leagues/${id}/simulate/next`,

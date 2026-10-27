@@ -75,12 +75,36 @@ describe('Pitch API', () => {
     const report = await request(app).get(`/api/matches/${fixtures.body[0].id}`).expect(200);
     expect(report.body.team_stats).toHaveLength(2);
     expect(report.body.player_stats).toHaveLength(28);
+    for (const clubId of [fixtures.body[0].home_club_id, fixtures.body[0].away_club_id]) {
+      expect(report.body.player_stats.filter((player: { club_id: number; is_starter: boolean }) =>
+        player.club_id === clubId && player.is_starter,
+      )).toHaveLength(11);
+      expect(report.body.substitutions.filter((substitution: { club_id: number }) =>
+        substitution.club_id === clubId,
+      )).toHaveLength(3);
+    }
     expect(report.body.fouls.length).toBeGreaterThan(0);
     expect(report.body.team_stats.reduce((sum: number, stats: { fouls: number }) => sum + stats.fouls, 0))
       .toBe(report.body.fouls.length);
     report.body.goals.forEach((goal: { player_name: string; assist_player_name: string | null }) => {
       expect(goal.player_name).toEqual(expect.any(String));
       if (goal.assist_player_name !== null) expect(goal.assist_player_name).toEqual(expect.any(String));
+    });
+  });
+
+  test('simulates the full season in one request', async () => {
+    const leagueId = await createLeague();
+    const response = await request(app).post(`/api/leagues/${leagueId}/simulate/all`).expect(200);
+    expect(response.body).toEqual({ matchdaysPlayed: 6, matchesPlayed: 12 });
+
+    const remaining = await pool.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM matches WHERE league_id = $1 AND home_goals IS NULL',
+      [leagueId],
+    );
+    expect(remaining.rows[0].count).toBe(0);
+    await request(app).post(`/api/leagues/${leagueId}/simulate/all`).expect(200, {
+      matchdaysPlayed: 0,
+      matchesPlayed: 0,
     });
   });
 
@@ -152,6 +176,7 @@ describe('Pitch API', () => {
       yellow_cards: number;
       red_cards: number;
       fouls: number;
+      substitutions: number;
       team_stats: number;
       player_stats: number;
     }>(
@@ -161,12 +186,13 @@ describe('Pitch API', () => {
         (SELECT COUNT(*)::int FROM yellow_cards yc JOIN matches m ON m.id = yc.match_id WHERE m.league_id = $1) AS yellow_cards,
         (SELECT COUNT(*)::int FROM red_cards rc JOIN matches m ON m.id = rc.match_id WHERE m.league_id = $1) AS red_cards,
         (SELECT COUNT(*)::int FROM fouls f JOIN matches m ON m.id = f.match_id WHERE m.league_id = $1) AS fouls,
+        (SELECT COUNT(*)::int FROM substitutions s JOIN matches m ON m.id = s.match_id WHERE m.league_id = $1) AS substitutions,
         (SELECT COUNT(*)::int FROM match_team_stats s JOIN matches m ON m.id = s.match_id WHERE m.league_id = $1) AS team_stats,
         (SELECT COUNT(*)::int FROM player_match_stats s JOIN matches m ON m.id = s.match_id WHERE m.league_id = $1) AS player_stats`,
       [leagueId],
     );
     expect(result.rows[0]).toEqual({
-      played: 0, goals: 0, yellow_cards: 0, red_cards: 0, fouls: 0, team_stats: 0, player_stats: 0,
+      played: 0, goals: 0, yellow_cards: 0, red_cards: 0, fouls: 0, substitutions: 0, team_stats: 0, player_stats: 0,
     });
   });
 
@@ -342,19 +368,20 @@ describe('Pitch API', () => {
   });
 
   test('applies pending SQL migrations for a database created with an older schema', async () => {
-    await pool.query('DROP TABLE yellow_cards, red_cards, fouls, match_team_stats, player_match_stats');
+    await pool.query('DROP TABLE substitutions, yellow_cards, red_cards, fouls, match_team_stats, player_match_stats');
     await pool.query('ALTER TABLE goals DROP COLUMN assist_player_id');
     await pool.query('ALTER TABLE matches DROP COLUMN home_xg, DROP COLUMN away_xg');
 
     expect(await applyMigrations(pool)).toEqual([
       '001_match_events.sql',
       '002_detailed_match_stats.sql',
+      '003_match_lineups.sql',
     ]);
     expect(await applyMigrations(pool)).toEqual([]);
 
     const tables = await pool.query<{ name: string | null }>(
       `SELECT to_regclass(name)::text AS name
-       FROM unnest(ARRAY['yellow_cards', 'red_cards', 'fouls', 'match_team_stats', 'player_match_stats']) name`,
+       FROM unnest(ARRAY['yellow_cards', 'red_cards', 'fouls', 'match_team_stats', 'player_match_stats', 'substitutions']) name`,
     );
     expect(tables.rows.every((row) => row.name !== null)).toBe(true);
 
@@ -364,12 +391,14 @@ describe('Pitch API', () => {
        WHERE table_schema = 'public' AND (
          (table_name = 'goals' AND column_name = 'assist_player_id')
          OR (table_name = 'matches' AND column_name IN ('home_xg', 'away_xg'))
+         OR (table_name = 'player_match_stats' AND column_name = 'is_starter')
        )`,
     );
     expect(columns.rows.map((row) => row.column_name).sort()).toEqual([
       'assist_player_id',
       'away_xg',
       'home_xg',
+      'is_starter',
     ]);
   });
 });

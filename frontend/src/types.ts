@@ -20,14 +20,6 @@ export interface ManagerMatchSummary {
   expectedGoalsAgainst: number;
   goalsFor: number;
   goalsAgainst: number;
-  lastGoalMinute?: number;
-}
-
-export interface ManagerState {
-  currentStreak: number;
-  bestStreak: number;
-  averageRating: number;
-  matchesManaged: number;
 }
 
 export interface Club {
@@ -102,6 +94,16 @@ export type MatchRedCard = MatchYellowCard;
 
 export type MatchFoul = MatchYellowCard;
 
+export interface MatchSubstitution {
+  id: number | string;
+  club_id: number | string;
+  player_off_id: number | string;
+  player_off_name: string;
+  player_on_id: number | string;
+  player_on_name: string;
+  minute: number;
+}
+
 export interface MatchTeamStats {
   club_id: number | string;
   possession: number;
@@ -129,6 +131,7 @@ export interface MatchPlayerStats {
   yellow_cards: number;
   red_cards: number;
   fouls: number;
+  is_starter: boolean;
 }
 
 export interface MatchDetail extends Match {
@@ -136,6 +139,7 @@ export interface MatchDetail extends Match {
   yellow_cards: MatchYellowCard[];
   red_cards: MatchRedCard[];
   fouls: MatchFoul[];
+  substitutions: MatchSubstitution[];
   team_stats: MatchTeamStats[];
   player_stats: MatchPlayerStats[];
 }

@@ -231,7 +231,7 @@ leaguesRouter.post('/leagues/:id/reset', async (req, res) => {
        WHERE match_id IN (SELECT id FROM matches WHERE league_id = $1)`,
       [leagueId],
     );
-    for (const table of ['red_cards', 'fouls', 'match_team_stats', 'player_match_stats']) {
+    for (const table of ['red_cards', 'fouls', 'substitutions', 'match_team_stats', 'player_match_stats']) {
       await client.query(
         `DELETE FROM ${table} WHERE match_id IN (SELECT id FROM matches WHERE league_id = $1)`,
         [leagueId],
@@ -247,32 +247,33 @@ leaguesRouter.post('/leagues/:id/reset', async (req, res) => {
 
 leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
   const leagueId = parseId(req.params.id);
+  const upToMatchday = readMatchday(req.query.upToMatchday);
   await requireLeague(leagueId);
   const result = await pool.query(
     `WITH goal_totals AS (
        SELECT g.player_id, COUNT(*)::int AS goals
        FROM goals g JOIN matches m ON m.id = g.match_id
-       WHERE m.league_id = $1
+       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
        GROUP BY g.player_id
      ), assist_totals AS (
        SELECT g.assist_player_id AS player_id, COUNT(*)::int AS assists
        FROM goals g JOIN matches m ON m.id = g.match_id
-       WHERE m.league_id = $1 AND g.assist_player_id IS NOT NULL
+       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2) AND g.assist_player_id IS NOT NULL
        GROUP BY g.assist_player_id
      ), card_totals AS (
        SELECT yc.player_id, COUNT(*)::int AS yellow_cards
        FROM yellow_cards yc JOIN matches m ON m.id = yc.match_id
-       WHERE m.league_id = $1
+       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
        GROUP BY yc.player_id
      ), red_card_totals AS (
        SELECT rc.player_id, COUNT(*)::int AS red_cards
        FROM red_cards rc JOIN matches m ON m.id = rc.match_id
-       WHERE m.league_id = $1
+       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
        GROUP BY rc.player_id
      ), foul_totals AS (
        SELECT f.player_id, COUNT(*)::int AS fouls
        FROM fouls f JOIN matches m ON m.id = f.match_id
-       WHERE m.league_id = $1
+       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
        GROUP BY f.player_id
      ), performance_totals AS (
        SELECT pms.player_id,
@@ -285,7 +286,7 @@ leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
          SUM(pms.tackles)::int AS tackles
        FROM player_match_stats pms
        JOIN matches m ON m.id = pms.match_id
-       WHERE m.league_id = $1
+       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
        GROUP BY pms.player_id
      ), totals AS (
        SELECT p.id AS player_id, p.club_id,
@@ -324,7 +325,7 @@ leaguesRouter.get('/leagues/:id/scorers', async (req, res) => {
      JOIN players p ON p.id = t.player_id
      JOIN clubs c ON c.id = t.club_id
      ORDER BY t.goals DESC, t.assists DESC, t.yellow_cards DESC, p.name`,
-    [leagueId],
+    [leagueId, upToMatchday ?? null],
   );
   res.json(result.rows);
 });
