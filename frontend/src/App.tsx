@@ -591,30 +591,41 @@ function getManOfTheMatch(players: MatchPlayerStats[]): MatchPlayerStats | undef
   ).find(player => player.minutes_played > 0);
 }
 
-function MatchLineup({ clubName, players, substitutions }: { clubName: string; players: MatchPlayerStats[]; substitutions: MatchDetail['substitutions'] }) {
-  const starters = players.filter(player => player.is_starter);
-  const legacyStarters = [...players]
-    .filter(player => player.minutes_played > 0)
-    .sort((a, b) => ['GK', 'DEF', 'MID', 'FWD'].indexOf(a.position) - ['GK', 'DEF', 'MID', 'FWD'].indexOf(b.position))
-    .slice(0, 11);
-  const startingEleven = starters.length ? starters : legacyStarters;
-  const startingIds = new Set(startingEleven.map(player => String(player.player_id)));
-  const bench = players.filter(player => !startingIds.has(String(player.player_id)));
-  const usedSubstitutes = new Set(substitutions.map(substitution => String(substitution.player_on_id)));
-
-  return <section className="lineup-team">
-    <h4>{clubName} <small>STARTING XI</small></h4>
-    <ol className="lineup-list">{startingEleven.map(player => {
-      const subbedOff = substitutions.find(substitution => String(substitution.player_off_id) === String(player.player_id));
-      return <li key={player.player_id}><span>{player.position}</span><strong>{player.player_name}</strong>{subbedOff ? <small>OFF {subbedOff.minute}&apos;</small> : player.red_cards > 0 ? <small>SENT OFF</small> : null}</li>;
-    })}</ol>
-    <h4 className="lineup-subheading">BENCH</h4>
-    {bench.length ? <ul className="lineup-list lineup-list--bench">{bench.map(player => <li key={player.player_id}>
-      <span>{player.position}</span><strong>{player.player_name}</strong><small>{usedSubstitutes.has(String(player.player_id)) ? 'SUB ON' : player.minutes_played > 0 ? `${player.minutes_played} MIN` : 'UNUSED'}</small>
-    </li>)}</ul> : <p className="lineup-empty">No bench players recorded.</p>}
-    {substitutions.length > 0 && <div className="substitution-list"><strong>SUBSTITUTIONS</strong>{substitutions.map(substitution =>
-      <span key={substitution.id}><b>{substitution.minute}&apos;</b> {substitution.player_on_name} <i>ON</i> for {substitution.player_off_name} <i>OFF</i></span>,
-    )}</div>}
+function MatchPitch({ homeName, awayName, homeCrest, awayCrest, homePlayers, awayPlayers, homeSubs, awaySubs }: {
+  homeName: string; awayName: string; homeCrest: Club; awayCrest: Club;
+  homePlayers: MatchPlayerStats[]; awayPlayers: MatchPlayerStats[];
+  homeSubs: MatchDetail['substitutions']; awaySubs: MatchDetail['substitutions'];
+}) {
+  const getStarters = (players: MatchPlayerStats[]) => {
+    const starters = players.filter(player => player.is_starter);
+    return starters.length ? starters : [...players].filter(player => player.minutes_played > 0)
+      .sort((a, b) => ['GK', 'DEF', 'MID', 'FWD'].indexOf(a.position) - ['GK', 'DEF', 'MID', 'FWD'].indexOf(b.position)).slice(0, 11);
+  };
+  const renderTeam = (players: MatchPlayerStats[], direction: 'up' | 'down') => {
+    const order = direction === 'up' ? ['FWD', 'MID', 'DEF', 'GK'] : ['GK', 'DEF', 'MID', 'FWD'];
+    const selected = getStarters(players);
+    return <div className="pitch-team">{order.map(position => <div className="pitch-line" key={position}>
+      {selected.filter(player => player.position === position).map(player => <div className="pitch-player" key={player.player_id}>
+        <span className="pitch-player-mark">{player.player_name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span>
+        <strong>{player.player_name}</strong>
+        {(player.goals > 0 || player.assists > 0 || player.yellow_cards > 0 || player.red_cards > 0) && <small>{player.goals ? `G ${player.goals}` : ''}{player.assists ? ` · A ${player.assists}` : ''}{player.yellow_cards ? ' · YC' : ''}{player.red_cards ? ' · RC' : ''}</small>}
+      </div>)}
+    </div>)}</div>;
+  };
+  const renderBench = (players: MatchPlayerStats[], subs: MatchDetail['substitutions'], name: string) => {
+    const starters = new Set(getStarters(players).map(player => String(player.player_id)));
+    const bench = players.filter(player => !starters.has(String(player.player_id)));
+    if (!bench.length && !subs.length) return null;
+    return <details className="pitch-extras"><summary>{name}: bench and changes</summary><div>
+      {bench.map(player => <span key={player.player_id}>{player.player_name} <small>{player.position}{player.minutes_played ? ` · ${player.minutes_played} min` : ''}</small></span>)}
+      {subs.map(sub => <span key={sub.id}>{sub.minute}&apos; {sub.player_on_name} on for {sub.player_off_name}</span>)}
+    </div></details>;
+  };
+  return <section className="match-pitch" aria-label="Match line-ups on a football pitch">
+    <div className="pitch-half pitch-half--away">{renderTeam(awayPlayers, 'up')}<div className="pitch-end"><ClubCrest club={awayCrest} size="small" /><strong>{awayName}</strong></div></div>
+    <div className="pitch-midline"><span /></div>
+    <div className="pitch-half pitch-half--home">{renderTeam(homePlayers, 'down')}<div className="pitch-end"><ClubCrest club={homeCrest} size="small" /><strong>{homeName}</strong></div></div>
+    {renderBench(awayPlayers, awaySubs, awayName)}{renderBench(homePlayers, homeSubs, homeName)}
   </section>;
 }
 
@@ -775,11 +786,11 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
   const homePlayers = match?.player_stats?.filter(player => String(player.club_id) === String(match.home_club_id)) ?? [];
   const awayPlayers = match?.player_stats?.filter(player => String(player.club_id) === String(match.away_club_id)) ?? [];
   const isMatchPlayed = match?.home_goals !== null && match?.home_goals !== undefined;
-  return <section className="tab-panel"><SectionTitle title="Match centre" detail="The moments that make the match." />
-    {error && <ErrorNotice message={error} />}
-    <label className="match-picker">CHOOSE A FIXTURE<select className="styled-select" value={selected} onChange={e => setSelected(e.target.value)} disabled={!matches.length}>{matches.length
+  return <section className="tab-panel match-centre-page"><div className="match-centre-heading"><h2>Match centre</h2>
+    <select className="styled-select match-picker-select" aria-label="Choose fixture" value={selected} onChange={e => setSelected(e.target.value)} disabled={!matches.length}>{matches.length
       ? matches.map(game => <option key={game.id} value={game.id}>{game.home_club_name} {game.home_goals ?? '–'} : {game.away_goals ?? '–'} {game.away_club_name}</option>)
-      : <option value="">No fixtures for this matchday</option>}</select></label>
+      : <option value="">No fixtures for this matchday</option>}</select></div>
+    {error && <ErrorNotice message={error} />}
     {match ? <div className="match-report">
       <div className="report-scoreboard"><span className="report-round">MATCHDAY {match.matchday}</span><div className="report-teams"><ReportTeam name={match.home_club_name} id={match.home_club_id} shortName={match.home_short_name} primary={match.home_colour_primary} secondary={match.home_colour_secondary} /><div className="report-score">{match.home_goals ?? '–'}<span>:</span>{match.away_goals ?? '–'}</div><ReportTeam name={match.away_club_name} id={match.away_club_id} shortName={match.away_short_name} primary={match.away_colour_primary} secondary={match.away_colour_secondary} /></div><span className="report-date">{match.played_at ? new Date(match.played_at).toLocaleString() : 'KICK-OFF PENDING'}</span></div>
       {!isMatchPlayed ? <div className="pre-match-preview">
@@ -787,10 +798,12 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
         <div><div className="eyebrow">FIXTURE PREVIEW</div><h3>Ready for kick-off</h3><p>Line-ups, match events and statistics will appear after this matchday is simulated.</p></div>
       </div> : <>
         {manOfTheMatch && <div className="report-motm"><img src="/matchday/motm.jpg" alt="" /><span><small>MAN OF THE MATCH</small><strong>{manOfTheMatch.player_name} <i className="motm-badge">MOTM</i></strong><em>{manOfTheMatch.goals} goals · {manOfTheMatch.assists} assists · {manOfTheMatch.key_passes} key passes</em></span></div>}
-        <section className="match-lineups"><h3>Team line-ups</h3><div className="lineup-grid">
-          <MatchLineup clubName={match.home_club_name} players={homePlayers} substitutions={homeSubstitutions} />
-          <MatchLineup clubName={match.away_club_name} players={awayPlayers} substitutions={awaySubstitutions} />
-        </div></section>
+        <MatchPitch
+          homeName={match.home_short_name} awayName={match.away_short_name}
+          homeCrest={{ id: match.home_club_id, name: match.home_club_name, short_name: match.home_short_name, colour_primary: match.home_colour_primary, colour_secondary: match.home_colour_secondary }}
+          awayCrest={{ id: match.away_club_id, name: match.away_club_name, short_name: match.away_short_name, colour_primary: match.away_colour_primary, colour_secondary: match.away_colour_secondary }}
+          homePlayers={homePlayers} awayPlayers={awayPlayers} homeSubs={homeSubstitutions} awaySubs={awaySubstitutions}
+        />
         <div className="timeline"><div className="timeline-column">{homeEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div></div>
         {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && !match.substitutions?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
         {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
@@ -802,7 +815,7 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
           ['Fouls', homeStats.fouls, awayStats.fouls],
           ['Saves', homeStats.saves, awayStats.saves],
         ].map(([label, homeValue, awayValue]) => <div className="match-stats-row" key={label}><strong>{homeValue}</strong><span>{label}</span><strong>{awayValue}</strong></div>)}</section>}
-        {match.player_stats?.length ? <section className="player-match-stats"><h3>Player match stats</h3><div className="player-match-stats-wrap"><table><thead><tr><th>PLAYER</th><th>MIN</th><th>G</th><th>A</th><th>SH</th><th>SOT</th><th>xG</th><th>KP</th><th>T</th><th>F</th><th>YC</th><th>RC</th></tr></thead><tbody>{match.player_stats.map(player => <tr key={player.player_id}><td>{player.player_name} <small>{player.position}</small></td><td>{player.minutes_played}</td><td>{player.goals}</td><td>{player.assists}</td><td>{player.shots}</td><td>{player.shots_on_target}</td><td>{Number(player.xg).toFixed(2)}</td><td>{player.key_passes}</td><td>{player.tackles}</td><td>{player.fouls}</td><td>{player.yellow_cards}</td><td>{player.red_cards}</td></tr>)}</tbody></table></div></section> : null}
+        {match.player_stats?.length ? <details className="player-match-stats"><summary>Player stats</summary><div className="player-match-stats-wrap"><table><thead><tr><th>Player</th><th>Min</th><th>G</th><th>A</th><th>Sh</th><th>SOT</th><th>xG</th><th>KP</th><th>T</th><th>F</th><th>YC</th><th>RC</th></tr></thead><tbody>{match.player_stats.map(player => <tr key={player.player_id}><td>{player.player_name} <small>{player.position}</small></td><td>{player.minutes_played}</td><td>{player.goals}</td><td>{player.assists}</td><td>{player.shots}</td><td>{player.shots_on_target}</td><td>{Number(player.xg).toFixed(2)}</td><td>{player.key_passes}</td><td>{player.tackles}</td><td>{player.fouls}</td><td>{player.yellow_cards}</td><td>{player.red_cards}</td></tr>)}</tbody></table></div></details> : null}
       </>}
     </div> : <EmptyPanel title="Pick a match to relive" text="Choose any fixture to see the score and goal timeline." />}
   </section>;
