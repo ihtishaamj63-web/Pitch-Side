@@ -1,36 +1,3 @@
-:root {
-  font-family: 'Inter Variable', Inter, sans-serif;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  --bg: #e9f0e2;
-  --surface: #f7faf4;
-  --border: #b8c8b3;
-  --text: #193322;
-  --muted: #4c6551;
-  --accent: #277745;
-  --accent-2: #bd8c16;
-  --danger: #b63d3d;
-  --night: var(--bg);
-  --panel: var(--surface);
-  --panel-soft: #dce8d6;
-  --line: var(--border);
-  --subtle: #4c6551;
-  --white: #193322;
-  --lime: var(--accent);
-  --orange: var(--danger);
-}
-
-* { box-sizing: border-box; scrollbar-width: auto; }
-html { min-width: 320px; scroll-behavior: smooth; scrollbar-width: thin; }
-body { min-width: 320px; min-height: 100vh; margin: 0; background: #164821 url('/matchday/dark-grass.jpg') center / 420px 420px repeat fixed; }
-button, input, select { font: inherit; }
-button, a, select { -webkit-tap-highlight-color: transparent; }
-a { color: inherit; text-decoration: none; }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
-button:disabled { cursor: wait; opacity: .7; }
-
 .app-shell { min-height: 100vh; overflow: hidden; background: #e9f0e2; }
 .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 0 max(calc((100vw - 1220px) / 2), 5.5vw); border-bottom: 1px solid rgba(166, 187, 207, .12); }
 .brand { display: flex; align-items: center; gap: 11px; color: var(--white); font-size: 14px; font-weight: 800; letter-spacing: .1em; }
@@ -872,4 +839,100 @@ h1, h2, h3, p { margin-top: 0; }
   #root .pitch-player-mark { width: 29px; height: 29px; }
   #root .pitch-player strong { font-size: 9px; }
   #root .pitch-player small { font-size: 8px; }
+}
+
+/* Keep the match centre focused on the fixture and the pitch. */
+#root .match-centre-page,
+#root .match-centre-page .match-report {
+  color: #193322;
+  background: #f7faf4;
+}
+
+#root .match-centre-page .match-picker-select {
+  color: #193322;
+  background-color: #f7faf4;
+  font-size: 14px;
+}
+
+#root .match-centre-page .pitch-player strong {
+  max-width: 110px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+  text-shadow: 0 1px 4px #102c1c, 0 0 2px #102c1c;
+}
+
+#root .match-centre-page .pitch-player-mark {
+  position: relative;
+  margin-bottom: 4px;
+}
+
+#root .match-centre-page .pitch-player-rating {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  min-width: 23px;
+  border: 1px solid #fff;
+  border-radius: 10px;
+  padding: 1px 3px;
+  color: #193322;
+  background: #f4cf42;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.1;
+  text-shadow: none;
+}
+
+#root .match-centre-page .pitch-half--away > .pitch-end {
+  position: absolute;
+  top: 4px;
+  left: 10px;
+}
+
+#root .match-centre-page .pitch-half--away .pitch-team {
+  padding-top: 22px;
+}
+
+#root .match-centre-page .pitch-half--home > .pitch-end {
+  position: absolute;
+  right: 10px;
+  bottom: 4px;
+}
+
+#root .match-centre-page .pitch-half--home .pitch-team {
+  padding-bottom: 22px;
+}
+
+#root .match-centre-page .pitch-player small {
+  color: #fff;
+  font-size: 11px;
+  text-shadow: 0 1px 4px #102c1c, 0 0 2px #102c1c;
+}
+
+#root .match-centre-page .report-motm {
+  min-height: 44px;
+  padding: 8px 18px;
+}
+
+#root .match-centre-page .report-motm span {
+  display: block;
+}
+
+#root .match-centre-page .timeline-line {
+  color: #536653;
+  font-size: 11px;
+}
+
+#root .match-centre-page .goal-event strong {
+  color: #193322;
+}
+
+#root .match-centre-page .goal-event small {
+  color: #536653;
+}
+
+@media (max-width: 600px) {
+  #root .match-centre-page .pitch-player strong { font-size: 10px; }
+  #root .match-centre-page .pitch-player small { font-size: 9px; }
 }

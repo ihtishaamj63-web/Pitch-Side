@@ -1,0 +1,8 @@
+* { box-sizing: border-box; scrollbar-width: auto; }
+html { min-width: 320px; scroll-behavior: smooth; scrollbar-width: thin; }
+body { min-width: 320px; min-height: 100vh; margin: 0; background: var(--bg); }
+button, input, select { font: inherit; }
+button, a, select { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; text-decoration: none; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:disabled { cursor: wait; opacity: .7; }

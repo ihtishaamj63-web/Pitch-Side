@@ -12,30 +12,57 @@ import type {
 } from './types';
 
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/$/, '');
+const CACHE_TTL_MS = 1_500;
+const responseCache = new Map<string, { expiresAt: number; value: unknown }>();
+const inFlight = new Map<string, Promise<unknown>>();
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      headers: {
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init?.headers,
-      },
-    });
-  } catch {
-    throw new Error(`Could not reach the league server at ${API_URL}. Check the API is running.`);
-  }
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const cacheable = method === 'GET';
+  const cached = cacheable ? responseCache.get(path) : undefined;
+  if (cached && cached.expiresAt > Date.now()) return cached.value as T;
+  if (cached) responseCache.delete(path);
+  if (cacheable && inFlight.has(path)) return inFlight.get(path) as Promise<T>;
 
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null);
-    const message = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
-      ? body.error
-      : `The request failed (${response.status}).`;
-    throw new Error(message);
+  const operation = (async (): Promise<T> => {
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < (cacheable ? 2 : 1); attempt += 1) {
+      try {
+        response = await fetch(`${API_URL}${path}`, {
+          ...init,
+          headers: {
+            ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+            ...init?.headers,
+          },
+        });
+        break;
+      } catch {
+        if (attempt === (cacheable ? 1 : 0)) {
+          throw new Error(`Could not reach the league server at ${API_URL}. Check the API is running.`);
+        }
+      }
+    }
+
+    if (!response) throw new Error('The league server returned no response.');
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      const message = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `The request failed (${response.status}).`;
+      throw new Error(message);
+    }
+    const value = response.status === 204 ? undefined as T : await response.json() as T;
+    if (cacheable) responseCache.set(path, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    else responseCache.clear();
+    return value;
+  })();
+
+  if (cacheable) inFlight.set(path, operation);
+  try {
+    return await operation;
+  } finally {
+    if (cacheable) inFlight.delete(path);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
 }
 
 const json = (data?: unknown): RequestInit => ({

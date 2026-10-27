@@ -1,0 +1,38 @@
+:root {
+  font-family: 'Inter Variable', Inter, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --bg: #e9f0e2;
+  --surface: #f7faf4;
+  --border: #b8c8b3;
+  --text: #193322;
+  --muted: #4c6551;
+  --accent: #277745;
+  --accent-2: #bd8c16;
+  --danger: #b63d3d;
+  --night: var(--bg);
+  --panel: var(--surface);
+  --panel-soft: #dce8d6;
+  --line: var(--border);
+  --subtle: #4c6551;
+  --white: #193322;
+  --lime: var(--accent);
+  --orange: var(--danger);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 2px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --type-xs: 11px;
+  --type-sm: 13px;
+  --type-md: 16px;
+  --type-lg: 22px;
+  --motion-fast: 120ms;
+  --motion-standard: 220ms;
+}

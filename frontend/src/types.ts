@@ -173,7 +173,7 @@ export interface LeagueDetail {
     bottom_zone?: number;
   };
   clubs: Club[];
-  progress: { played_matches?: number; total_matches?: number; played?: number; total?: number; percentage?: number } | number;
+  progress: { played_matches?: number; total_matches?: number; completed_matchdays?: number };
 }
 
 export interface ClubDetail {
