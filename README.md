@@ -1,4 +1,4 @@
-> ![Pitch-Side Dashboard]({6FAC3480-8478-4F26-91C3-88B2A4B8CD4D}.png)
+# Pitch-Side
 
 # Pitch
 

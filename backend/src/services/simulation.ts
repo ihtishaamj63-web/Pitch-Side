@@ -9,7 +9,7 @@ interface RatedClub {
   defence: number;
 }
 
-interface SquadPlayer extends SimulationPlayer {
+interface DatabaseSquadPlayer extends SimulationPlayer {
   club_id: number;
 }
 
@@ -46,13 +46,13 @@ export async function simulateMatchday(
       'SELECT id, name, attack, defence FROM clubs WHERE league_id = $1 AND id = ANY($2::int[])',
       [leagueId, clubIds],
     ),
-    client.query<SquadPlayer>(
+    client.query<DatabaseSquadPlayer>(
       'SELECT id, club_id, name, position FROM players WHERE club_id = ANY($1::int[]) ORDER BY id',
       [clubIds],
     ),
   ]);
   const clubs = new Map(clubsResult.rows.map((club) => [club.id, club]));
-  const squads = new Map<number, SquadPlayer[]>();
+  const squads = new Map<number, DatabaseSquadPlayer[]>();
   for (const player of playersResult.rows) {
     const squad = squads.get(player.club_id) ?? [];
     squad.push(player);

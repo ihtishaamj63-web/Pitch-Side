@@ -8,6 +8,7 @@ const clubNames = [
   'Emberford', 'Fernhollow', 'Glassmere', 'Hearthside',
   'Indigo Field', 'Juniper Bay', 'Kestrel Downs', 'Larkspur',
   'Morrowfen', 'Northglass', 'Orchard Row', 'Pinehaven',
+  'Queensmere', 'Rillstone', 'Silverfen', 'Thornwick',
 ];
 
 function makeLeague(clubCount = 4) {
@@ -42,13 +43,24 @@ describe('Pitch API', () => {
       'SELECT COUNT(*)::int AS count, COUNT(DISTINCT matchday)::int AS matchdays FROM matches WHERE league_id = $1',
       [leagueId],
     );
-    const players = await pool.query<{ count: number }>(
-      'SELECT COUNT(*)::int AS count FROM players p JOIN clubs c ON c.id = p.club_id WHERE c.league_id = $1',
+    const players = await pool.query<{ count: number; unique_names: number }>(
+      'SELECT COUNT(*)::int AS count, COUNT(DISTINCT p.name)::int AS unique_names FROM players p JOIN clubs c ON c.id = p.club_id WHERE c.league_id = $1',
       [leagueId],
     );
 
     expect(matches.rows[0]).toEqual({ count: 240, matchdays: 30 });
     expect(players.rows[0].count).toBe(224);
+    expect(players.rows[0].unique_names).toBe(224);
+  });
+
+  test('generates unique player names in a 20-club league', async () => {
+    const leagueId = await createLeague(20);
+    const players = await pool.query<{ count: number; unique_names: number }>(
+      'SELECT COUNT(*)::int AS count, COUNT(DISTINCT p.name)::int AS unique_names FROM players p JOIN clubs c ON c.id = p.club_id WHERE c.league_id = $1',
+      [leagueId],
+    );
+
+    expect(players.rows[0]).toEqual({ count: 280, unique_names: 280 });
   });
 
   test('simulates one full matchday and keeps aggregate goals balanced', async () => {

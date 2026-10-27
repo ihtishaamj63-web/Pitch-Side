@@ -1,8 +1,8 @@
-import { createSeededRng, mulberry32 } from '../../src/lib/random';
+import { mulberry32 } from '../../src/lib/random';
 import {
   applyTactics,
   assignScorers,
-  expectedGoals,
+  calculateExpectedGoals,
   samplePoisson,
   simulateMatch,
   SimulationClub,
@@ -29,9 +29,9 @@ const away: SimulationClub = {
   players: [{ id: 21, name: 'Forward', position: 'FWD' }],
 };
 
-describe('expectedGoals', () => {
+describe('calculateExpectedGoals', () => {
   it('uses the defaults and specified home/away formulas', () => {
-    const result = expectedGoals(home, away);
+    const result = calculateExpectedGoals(home, away);
     expect(result).toEqual({
       home: 1.35 * 1.15 * (home.attack / away.defence),
       away: 1.35 / 1.15 * (away.attack / home.defence),
@@ -39,19 +39,19 @@ describe('expectedGoals', () => {
   });
 
   it('clamps both lambdas to the default lower and upper bounds', () => {
-    expect(expectedGoals(
+    expect(calculateExpectedGoals(
       { ...home, attack: 1000 },
       { ...away, defence: 1 },
     ).home).toBe(4.5);
-    expect(expectedGoals(
+    expect(calculateExpectedGoals(
       { ...home, attack: 0.001 },
       { ...away, defence: 100 },
     ).home).toBe(0.15);
-    expect(expectedGoals(
+    expect(calculateExpectedGoals(
       { ...home, defence: 100 },
       { ...away, attack: 0.001 },
     ).away).toBe(0.15);
-    expect(expectedGoals(
+    expect(calculateExpectedGoals(
       { ...home, defence: 1 },
       { ...away, attack: 1000 },
     ).away).toBe(4.5);
@@ -78,7 +78,7 @@ describe('samplePoisson', () => {
   it('handles zero and deterministic seeded samples', () => {
     expect(samplePoisson(0, () => 0.5)).toBe(0);
     expect(samplePoisson(1, () => 0.5)).toBe(1);
-    expect(samplePoisson(2, createSeededRng(10))).toBe(samplePoisson(2, createSeededRng(10)));
+    expect(samplePoisson(2, mulberry32(10))).toBe(samplePoisson(2, mulberry32(10)));
     expect(() => samplePoisson(-1, () => 0.5)).toThrow();
   });
 
@@ -102,7 +102,7 @@ describe('scorer assignment and match simulation', () => {
       { id: 3, name: 'Midfielder', position: 'MID' },
       { id: 4, name: 'Forward', position: 'FWD' },
     ];
-    const scorers = assignScorers(100, squad, createSeededRng(15), 8);
+    const scorers = assignScorers(100, squad, mulberry32(15), 8);
     expect(scorers).toHaveLength(100);
     expect(scorers.every((scorer) => scorer.playerId !== 1)).toBe(true);
     expect(scorers.map((scorer) => scorer.minute)).toEqual(
@@ -116,10 +116,10 @@ describe('scorer assignment and match simulation', () => {
     expect(() => assignScorers(
       1,
       [{ id: 1, name: 'Keeper', position: 'GK' }],
-      createSeededRng(3),
+      mulberry32(3),
       8,
     )).toThrow('Cannot assign goals without an eligible non-goalkeeper player');
-    expect(assignScorers(0, [{ id: 1, name: 'Keeper', position: 'GK' }], createSeededRng(3)))
+    expect(assignScorers(0, [{ id: 1, name: 'Keeper', position: 'GK' }], mulberry32(3)))
       .toEqual([]);
   });
 
@@ -137,8 +137,8 @@ describe('scorer assignment and match simulation', () => {
   });
 
   it('simulates deterministically and attaches scorers to the relevant club/player', () => {
-    const first = simulateMatch(home, away, createSeededRng(77));
-    const repeated = simulateMatch(home, away, createSeededRng(77));
+    const first = simulateMatch(home, away, mulberry32(77));
+    const repeated = simulateMatch(home, away, mulberry32(77));
     expect(first).toEqual(repeated);
     expect(first.scorers).toHaveLength(first.homeGoals + first.awayGoals);
     expect(first.yellowCards).toEqual(repeated.yellowCards);
@@ -194,7 +194,7 @@ describe('scorer assignment and match simulation', () => {
     const result = simulateMatch(
       { ...home, players: makeSquad(home.id) },
       { ...away, players: makeSquad(away.id) },
-      createSeededRng(2026),
+      mulberry32(2026),
     );
 
     for (const club of [home, away]) {

@@ -56,9 +56,6 @@ export function generateFixtures(clubs: FixtureClub[]): Fixture[] {
   return firstLeg.concat(secondLeg);
 }
 
-/** Backwards-compatible name for consumers that describe clubs as teams. */
-export const generateDoubleRoundRobin = generateFixtures;
-
 /**
  * Throws when either club is absent from the league or belongs to another league.
  * The map is keyed by club ID and stores each club's league ID.

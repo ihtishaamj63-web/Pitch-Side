@@ -8,6 +8,7 @@ export type CreateLeagueInput = z.infer<typeof createLeagueSchema>;
 const firstNames = [
   'Ari', 'Belen', 'Caro', 'Dara', 'Eris', 'Fenn', 'Galen',
   'Hali', 'Iven', 'Jori', 'Kelis', 'Lumen', 'Maren', 'Neris',
+  'Oriel', 'Perrin', 'Quin', 'Riven', 'Solen', 'Tavi',
 ];
 const lastNames = [
   'Vale', 'Morrow', 'Fen', 'Wick', 'Arden', 'Kestrel', 'Dale',
@@ -43,7 +44,8 @@ export async function createLeague(client: PoolClient, input: CreateLeagueInput)
     clubLeagueIds.set(clubId, leagueId);
 
     for (let playerIndex = 0; playerIndex < squadPositions.length; playerIndex += 1) {
-      const name = `${firstNames[playerIndex]} ${lastNames[(playerIndex + index) % lastNames.length]}`;
+      const nameOrdinal = index * squadPositions.length + playerIndex;
+      const name = `${firstNames[nameOrdinal % firstNames.length]} ${lastNames[Math.floor(nameOrdinal / firstNames.length) % lastNames.length]}`;
       await client.query(
         'INSERT INTO players (club_id, name, position) VALUES ($1, $2, $3)',
         [clubId, name, squadPositions[playerIndex]],

@@ -15,5 +15,3 @@ export function mulberry32(seed: number): RandomSource {
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
 }
-
-export const createSeededRng = mulberry32;

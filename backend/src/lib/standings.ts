@@ -15,9 +15,6 @@ export interface PlayedMatch {
   matchday?: number;
 }
 
-/** Legacy-compatible type alias for match results. */
-export type MatchResult = PlayedMatch;
-
 export interface TableRow {
   clubId: ClubId;
   clubName: string;
@@ -32,8 +29,6 @@ export interface TableRow {
   form: string;
   position: number;
 }
-
-export type Standing = TableRow;
 
 export interface TableRules {
   pointsWin?: number;
@@ -141,5 +136,3 @@ export function computeTable(
   });
   return table;
 }
-
-export const calculateStandings = computeTable;

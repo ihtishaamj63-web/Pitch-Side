@@ -17,8 +17,6 @@ export interface SimulationClub extends Club {
   players?: SimulationPlayer[];
 }
 
-export type SquadPlayer = SimulationPlayer;
-
 export interface ExpectedGoals {
   home: number;
   away: number;
@@ -117,8 +115,6 @@ export interface ExpectedGoalsParameters {
   homeAdv?: number;
 }
 
-export type ExpectedGoalsOptions = ExpectedGoalsParameters;
-
 const DEFAULT_EXPECTED_GOALS: Required<ExpectedGoalsParameters> = {
   baseGoals: 1.35,
   homeAdv: 1.15,
@@ -184,8 +180,6 @@ export function calculateExpectedGoals(
     ),
   };
 }
-
-export const expectedGoals = calculateExpectedGoals;
 
 /** Samples a Poisson-distributed count with Knuth's algorithm. */
 export function samplePoisson(lambda: number, rng: RandomSource): number {
@@ -437,12 +431,14 @@ function createTeamAndPlayerStats(
     stats.xg = rawXgTotal > 0 ? expectedGoalsValue * rawXg / rawXgTotal : 0;
   });
 
-  for (let index = 0; index < samplePoisson(4, rng); index += 1) {
+  const keyPassCount = samplePoisson(4, rng);
+  for (let index = 0; index < keyPassCount; index += 1) {
     const minute = Math.floor(rng() * 90) + 1;
     const player = eligible.filter((candidate) => ['MID', 'FWD'].includes(candidate.position.toUpperCase()) && participatingAt(candidate, minute));
     if (player.length) playerStats.get(player[Math.floor(rng() * player.length)].id)!.keyPasses += 1;
   }
-  for (let index = 0; index < samplePoisson(25, rng); index += 1) {
+  const tackleCount = samplePoisson(25, rng);
+  for (let index = 0; index < tackleCount; index += 1) {
     const minute = Math.floor(rng() * 90) + 1;
     const available = eligible.filter(player => participatingAt(player, minute));
     if (available.length) playerStats.get(available[Math.floor(rng() * available.length)].id)!.tackles += 1;
