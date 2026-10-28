@@ -55,7 +55,7 @@ h1, h2, h3, p { margin-top: 0; }
 .league-card:hover { border-color: rgba(200, 242, 105, .55); transform: translateY(-3px); }
 .league-card-link { display: block; }
 .league-card-actions { display: flex; justify-content: flex-end; padding: 3px 4px 0; border-top: 1px solid rgba(146, 171, 196, .1); }
-.league-delete-button { border: 0; padding: 6px 5px; background: transparent; color: #a6b0bd; cursor: pointer; font-size: 8px; transition: color .18s; }
+.league-delete-button { border: 0; padding: 6px 8px; background: transparent; color: #a6b0bd; cursor: pointer; font-size: 12px; transition: color .18s; }
 .league-delete-button:hover:not(:disabled) { color: #ff7b82; }
 .league-delete-button:disabled { cursor: wait; opacity: .6; }
 .league-card-art { height: 115px; position: relative; overflow: hidden; padding: 13px; background: linear-gradient(130deg, #1e3a4a, #121c30 70%); }
