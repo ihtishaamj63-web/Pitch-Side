@@ -26,7 +26,7 @@ export async function simulateMatchday(
   leagueId: number,
   matchday: number,
   managerChoices?: ManagerChoices,
-  options: { live?: boolean; kickoffAt?: Date; durationSeconds?: number } = {},
+  options: { live?: boolean; managerOnlyLive?: boolean; kickoffAt?: Date; durationSeconds?: number } = {},
 ): Promise<{ matchesPlayed: number; managerMatch: ManagerMatchSummary | null }> {
   const matches = await client.query<{
     id: number;
@@ -77,7 +77,8 @@ export async function simulateMatchday(
       rng,
     );
 
-    if (options.live) {
+    const matchIsLive = Boolean(options.live && (!options.managerOnlyLive || homeIsManager || awayIsManager));
+    if (matchIsLive) {
       await client.query(
         `UPDATE matches
          SET status = 'live', kickoff_at = $1, duration_seconds = $2,
@@ -109,7 +110,7 @@ export async function simulateMatchday(
           JSON.stringify(event.payload), event.commentary],
       );
     }
-    if (!options.live) await storeMatchStats(client, match.id, result);
+    if (!matchIsLive) await storeMatchStats(client, match.id, result);
     if (managerChoices && (homeIsManager || awayIsManager)) {
       const isHome = homeIsManager;
       managerMatch = {
