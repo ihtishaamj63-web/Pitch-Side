@@ -14,7 +14,7 @@ const tabs = [
   ['fixtures', 'Fixtures'],
   ['live', 'Live'],
   ['match-centre', 'Match centre'],
-  ['scorers', 'League leaders'],
+  ['stats', 'Player statistics'],
   ['awards', 'Awards'],
 ] as const;
 export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {

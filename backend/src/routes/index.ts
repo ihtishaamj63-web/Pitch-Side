@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { clubsRouter } from './clubs';
 import { leaguesRouter } from './leagues';
 import { matchesRouter } from './matches';
+import { playersRouter } from './players';
 
 export const apiRouter = Router();
 
@@ -11,3 +12,4 @@ apiRouter.get('/health', (_req, res) => {
 apiRouter.use(leaguesRouter);
 apiRouter.use(matchesRouter);
 apiRouter.use(clubsRouter);
+apiRouter.use(playersRouter);

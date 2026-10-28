@@ -17,6 +17,8 @@ export const createLeagueSchema = z.object({
   points_draw: z.number().int().nonnegative().default(1),
   top_zone: z.number().int().nonnegative().default(4),
   bottom_zone: z.number().int().nonnegative().default(3),
+  season_start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  matchday_cadence_days: z.number().int().min(1).max(28).default(7),
   clubs: z.array(clubSchema).min(4).max(20),
 }).superRefine(({ clubs }, context) => {
   const names = clubs.map(({ name }) => name.toLocaleLowerCase());

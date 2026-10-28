@@ -9,6 +9,7 @@ import { ClubPage } from './pages/ClubPage';
 import { LeagueHome } from './pages/HomePage';
 import { LeaguePage } from './pages/LeaguePage';
 import { MatchPage } from './pages/MatchPage';
+import { PlayerPage } from './pages/PlayerPage';
 import './App.css';
 
 const footerUrl = import.meta.env.VITE_PORTFOLIO_URL;
@@ -100,6 +101,7 @@ function AppContent() {
             <Route path="/leagues/:leagueId/:tab" element={<LeaguePage liveState={liveState} />} />
             <Route path="/matches/:matchId" element={<MatchPage />} />
             <Route path="/clubs/:clubId" element={<ClubPage />} />
+            <Route path="/players/:playerId" element={<PlayerPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </AnimatePresence>

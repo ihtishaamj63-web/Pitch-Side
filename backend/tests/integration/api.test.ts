@@ -66,6 +66,19 @@ describe('Pitch API', () => {
     expect(players.rows[0]).toEqual({ count: 280, unique_names: 280 });
   });
 
+  test('schedules each matchday from the configured season start and cadence', async () => {
+    const response = await request(app).post('/api/leagues').send({
+      ...makeLeague(), season_start_date: '2027-01-03', matchday_cadence_days: 14,
+    }).expect(201);
+    const dates = await pool.query<{ matchday: number; scheduled_at: Date }>(
+      `SELECT matchday, MIN(scheduled_at) AS scheduled_at FROM matches
+       WHERE league_id = $1 GROUP BY matchday ORDER BY matchday LIMIT 2`,
+      [response.body.id],
+    );
+    expect(dates.rows[0].scheduled_at.toISOString()).toBe('2027-01-03T12:00:00.000Z');
+    expect(dates.rows[1].scheduled_at.getTime() - dates.rows[0].scheduled_at.getTime()).toBe(14 * 86_400_000);
+  });
+
   test('simulates one full matchday and keeps aggregate goals balanced', async () => {
     const leagueId = await createLeague(16);
     const response = await request(app).post(`/api/leagues/${leagueId}/simulate/next`);
@@ -467,7 +480,7 @@ describe('Pitch API', () => {
 
     const leaders = await request(app).get(`/api/leagues/${leagueId}/player-stats`).expect(200);
     expect(leaders.body).toEqual(expect.arrayContaining([
-      expect.objectContaining({ player_id: homePlayers.rows[0].id, goals: 1, assists: 0 }),
+      expect.objectContaining({ player_id: homePlayers.rows[0].id, position: expect.stringMatching(/^(GK|DEF|MID|FWD)$/), goals: 1, assists: 0 }),
       expect.objectContaining({ player_id: homePlayers.rows[1].id, goals: 0, assists: 1 }),
       expect.objectContaining({ player_id: awayPlayers.rows[0].id, yellow_cards: 1 }),
       expect.objectContaining({
@@ -554,5 +567,19 @@ describe('Pitch API', () => {
     });
     const leagueId = await createLeague();
     await request(app).get(`/api/leagues/${leagueId}/player-stats`).expect(200);
+  });
+
+  test('returns a dedicated player profile without exposing unfinished match stats', async () => {
+    const leagueId = await createLeague();
+    const player = await pool.query<{ id: number; name: string; position: string }>(
+      `SELECT p.id, p.name, p.position FROM players p
+       JOIN clubs c ON c.id = p.club_id WHERE c.league_id = $1 ORDER BY p.id LIMIT 1`,
+      [leagueId],
+    );
+    const response = await request(app).get(`/api/players/${player.rows[0].id}`).expect(200);
+    expect(response.body.player).toMatchObject({
+      id: player.rows[0].id, name: player.rows[0].name, position: player.rows[0].position,
+    });
+    expect(response.body.matches).toEqual([]);
   });
 });

@@ -432,7 +432,7 @@ const playerStatsHandler = async (req: Request<{ id: string }>, res: Response) =
          )
      )
      SELECT RANK() OVER (ORDER BY t.goals DESC)::int AS rank,
-       p.id AS player_id, p.name AS player_name, c.id AS club_id,
+       p.id AS player_id, p.name AS player_name, p.position, c.id AS club_id,
        c.name AS club_name, c.short_name, t.goals, t.assists, t.yellow_cards,
        t.red_cards, t.fouls, t.appearances, t.minutes, t.shots,
        t.shots_on_target, t.xg, t.key_passes, t.tackles

@@ -13,7 +13,7 @@ export function LeagueTab({ tab, leagueId, clubs, standings, matchday, onMatchda
   if (tab === 'fixtures') return <FixturesTab key={refreshKey} leagueId={leagueId} matchday={matchday} onMatchdayChange={onMatchdayChange} totalMatchdays={totalMatchdays(clubs.length)} />;
   if (tab === 'match-centre') return <MatchCentreTab key={refreshKey} leagueId={leagueId} matchday={matchday} managerClubId={managerClubId} />;
   if (tab === 'live') return <LiveHub leagueId={leagueId} managerClubId={managerClubId} liveState={liveState} />;
-  if (tab === 'scorers') return <ScorersTab key={refreshKey} leagueId={leagueId} matchday={matchday} />;
+  if (tab === 'stats') return <ScorersTab key={refreshKey} leagueId={leagueId} matchday={matchday} />;
   if (tab === 'awards') return <AwardsTab key={refreshKey} leagueId={leagueId} matchday={matchday} seasonComplete={seasonComplete} />;
   return <TableTab leagueId={leagueId} standings={standings} topZone={topZone} bottomZone={bottomZone} />;
 }
@@ -173,7 +173,7 @@ function FixturesTab({ leagueId, matchday, onMatchdayChange, totalMatchdays }: {
 
 export function MatchList({ matches, leagueId }: { matches: Match[]; leagueId?: number | string }) {
   return matches.length ? <div className="match-list">{matches.map(match => <Link className="match-card" key={match.id} to={`/leagues/${leagueId || match.league_id || ''}/match-centre?matchday=${match.matchday}&match=${match.id}`}>
-    <span className="match-kickoff">{match.played_at ? new Date(match.played_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) : `MD ${match.matchday}`}</span>
+    <span className="match-kickoff">{match.played_at || match.scheduled_at ? new Date(match.played_at ?? match.scheduled_at!).toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) : `MD ${match.matchday}`}</span>
     <MatchTeam match={match} side="home" align="right" />
     <span className={`match-score${match.home_goals === null ? ' upcoming' : ''}`}>{match.home_goals ?? '–'} <i>:</i> {match.away_goals ?? '–'}</span>
     {match.status === 'live' && <span className="match-live-badge">LIVE {match.minute ?? 0}{match.minute_extra ? `+${match.minute_extra}` : ''}&apos;</span>}
@@ -258,28 +258,37 @@ function ScorersTab({ leagueId, matchday }: { leagueId: string; matchday: number
   const loadPlayers = useCallback(() => api.playerStats(leagueId, matchday), [leagueId, matchday]);
   const { data: playerData, error } = useApi(`player-stats:${leagueId}:${matchday}`, loadPlayers);
   const players = playerData ?? [];
-  const leaderboards = [
-    { label: 'Goals', key: 'goals' as const, suffix: 'G' },
-    { label: 'Assists', key: 'assists' as const, suffix: 'A' },
-    { label: 'Yellow cards', key: 'yellow_cards' as const, suffix: 'YC' },
-    { label: 'Red cards', key: 'red_cards' as const, suffix: 'RC' },
-    { label: 'Fouls', key: 'fouls' as const, suffix: 'F' },
-    { label: 'Shots', key: 'shots' as const, suffix: 'SH' },
-    { label: 'Shots on target', key: 'shots_on_target' as const, suffix: 'SOT' },
-    { label: 'Expected goals', key: 'xg' as const, suffix: 'xG' },
-    { label: 'Key passes', key: 'key_passes' as const, suffix: 'KP' },
-    { label: 'Tackles', key: 'tackles' as const, suffix: 'T' },
-  ];
-  return <section className="tab-panel"><SectionTitle title="Player statistics" detail="Season totals for attacking output, passing and discipline." />
+  const [category, setCategory] = useState<'goals' | 'assists' | 'xg' | 'key_passes' | 'tackles' | 'cards' | 'per90'>('goals');
+  const [position, setPosition] = useState('ALL');
+  const [ascending, setAscending] = useState(false);
+  const categories = {
+    goals: { label: 'Goals', value: (player: PlayerStat) => player.goals, format: (value: number) => String(value) },
+    assists: { label: 'Assists', value: (player: PlayerStat) => player.assists, format: (value: number) => String(value) },
+    xg: { label: 'Expected goals', value: (player: PlayerStat) => Number(player.xg), format: (value: number) => value.toFixed(2) },
+    key_passes: { label: 'Key passes', value: (player: PlayerStat) => player.key_passes, format: (value: number) => String(value) },
+    tackles: { label: 'Tackles', value: (player: PlayerStat) => player.tackles, format: (value: number) => String(value) },
+    cards: { label: 'Cards', value: (player: PlayerStat) => player.yellow_cards + player.red_cards, format: (value: number) => String(value) },
+    per90: { label: 'Goal contributions / 90', value: (player: PlayerStat) => player.minutes ? (player.goals + player.assists) * 90 / player.minutes : 0, format: (value: number) => value.toFixed(2) },
+  };
+  const metric = categories[category];
+  const ranked = players.filter(player => position === 'ALL' || player.position === position)
+    .sort((a, b) => (metric.value(a) - metric.value(b)) * (ascending ? 1 : -1) || a.player_name.localeCompare(b.player_name));
+  return <section className="tab-panel"><SectionTitle title="Player statistics" detail="Compare season performance by category and position." />
     {error && <ErrorNotice message={error} />}
-    {players.length ? <div className="leaderboards">{leaderboards.map(({ label, key, suffix }) => {
-      const rows = [...players].sort((a, b) => Number(b[key]) - Number(a[key]) || b.goals - a.goals || a.player_name.localeCompare(b.player_name)).filter(player => Number(player[key]) > 0).slice(0, 5);
-      const maximum = Number(rows[0]?.[key]) || 1;
-      return <section className="leaderboard-panel" key={key}><h3>{label}</h3>{rows.length ? rows.map((player, index) => <Link to={`/clubs/${player.club_id}`} className="leaderboard-row" key={player.player_id}><span className="scorer-rank">{String(index + 1).padStart(2, '0')}</span><span className="leaderboard-player"><strong>{player.player_name}</strong><small>{player.club_name} · {player.short_name}</small></span><span className="leaderboard-bar"><i style={{ width: `${Math.max(8, Number(player[key]) / maximum * 100)}%` }} /></span><strong className="scorer-goals">{key === 'xg' ? Number(player[key]).toFixed(2) : player[key]}<small>{suffix}</small></strong></Link>) : <p className="leaderboard-empty">No {label.toLowerCase()} recorded.</p>}</section>;
-    })}</div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to record goals, assists and yellow cards." />}
+    <div className="stats-controls">
+      <label>Category<select value={category} onChange={event => { setCategory(event.target.value as typeof category); setAscending(false); }}>
+        {Object.entries(categories).map(([key, item]) => <option value={key} key={key}>{item.label}</option>)}
+      </select></label>
+      <label>Position<select value={position} onChange={event => setPosition(event.target.value)}>
+        <option value="ALL">All positions</option><option value="GK">Goalkeepers</option><option value="DEF">Defenders</option><option value="MID">Midfielders</option><option value="FWD">Forwards</option>
+      </select></label>
+      <span>{ranked.length} players</span>
+    </div>
+    {ranked.length ? <div className="table-wrap"><table className="player-stats-table"><thead><tr><th>RANK</th><th className="align-left">PLAYER</th><th>POS</th><th className="align-left">CLUB</th><th>APPS</th><th><button type="button" className="stats-sort" onClick={() => setAscending(value => !value)} aria-label={`Sort ${metric.label} ${ascending ? 'descending' : 'ascending'}`}>{metric.label.toUpperCase()} {ascending ? '↑' : '↓'}</button></th></tr></thead>
+      <tbody>{ranked.map((player, index) => <tr key={player.player_id}><td>{index + 1}</td><td className="align-left"><Link className="stats-player-link" to={`/players/${player.player_id}`}>{player.player_name}</Link></td><td>{player.position}</td><td className="align-left"><Link to={`/clubs/${player.club_id}`}>{player.club_name}</Link></td><td>{player.appearances}</td><td><strong>{metric.format(metric.value(player))}</strong></td></tr>)}</tbody>
+    </table></div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to compare the season's players." />}
   </section>;
 }
-
 function seasonPlayerScore(player: PlayerStat): number {
   return player.goals * 4 + player.assists * 3 + player.key_passes * 0.15
     + player.tackles * 0.08 + player.minutes / 1000 - player.red_cards * 1.5 - player.yellow_cards * 0.2;
@@ -296,13 +305,19 @@ function AwardsTab({ leagueId, matchday, seasonComplete }: { leagueId: string; m
     || b.assists - a.assists
     || a.player_name.localeCompare(b.player_name),
   );
-  const teamOfTheSeason = rankedPlayers.slice(0, 11);
+  const teamOfTheSeason = (['GK', 'DEF', 'MID', 'FWD'] as const).flatMap(position =>
+    rankedPlayers.filter(player => player.position === position).slice(0, ({ GK: 1, DEF: 4, MID: 4, FWD: 2 })[position]),
+  );
   const playerOfTheYear = rankedPlayers[0];
   return <section className="tab-panel"><SectionTitle title={seasonComplete ? 'Season awards' : 'Potential season awards'} detail="Based on player stats through the selected matchday." />
     {error && <ErrorNotice message={error} />}
     {playerOfTheYear && <section className="poty-card"><img src="/matchday/motm.jpg" alt="" /><div><div className="eyebrow">{seasonComplete ? 'PLAYER OF THE SEASON' : 'POTENTIAL PLAYER OF THE SEASON'}</div><h3>{playerOfTheYear.player_name}</h3><p>{playerOfTheYear.club_name} · {playerOfTheYear.goals} goals · {playerOfTheYear.assists} assists</p></div><strong>{seasonPlayerScore(playerOfTheYear).toFixed(1)}<small> IMPACT</small></strong></section>}
     <section className="team-of-season"><div className="team-of-season-heading"><div><div className="eyebrow">{seasonComplete ? 'FINAL XI' : 'POTENTIAL XI'}</div><h3>{seasonComplete ? 'Team of the season' : 'Potential team of the season'}</h3></div><span>{teamOfTheSeason.length} / 11</span></div>
-      {teamOfTheSeason.length ? <div className="award-player-grid">{teamOfTheSeason.map((player, index) => <Link className="award-player" to={`/clubs/${player.club_id}`} key={player.player_id}><span>{String(index + 1).padStart(2, '0')}</span><strong>{player.player_name}</strong><small>{player.club_name}</small><em>{player.goals} G · {player.assists} A</em></Link>)}</div> : <EmptyPanel title="The awards are waiting" text="Play some fixtures to see the season's standout players." />}
+      {teamOfTheSeason.length ? <div className="award-pitch" aria-label="Team of the season in a 4-4-2 formation">
+        {(['FWD', 'MID', 'DEF', 'GK'] as const).map(position => <div className={`award-pitch-line award-pitch-line--${position}`} key={position}>
+          {teamOfTheSeason.filter(player => player.position === position).map(player => <Link className="award-pitch-player" to={`/players/${player.player_id}`} key={player.player_id} title={`${player.player_name}, ${player.club_name}`}><span>{player.player_name.split(/\s+/).map(part => part[0]).slice(0, 2).join('')}</span><strong>{player.player_name}</strong><small>{player.club_name}</small></Link>)}
+        </div>)}
+      </div> : <EmptyPanel title="The awards are waiting" text="Play some fixtures to see the season's standout players." />}
     </section>
   </section>;
 }

@@ -35,6 +35,7 @@ export async function ensureDemoLeague() {
       points_draw: 1,
       top_zone: 4,
       bottom_zone: 3,
+      matchday_cadence_days: 7,
       clubs: demoClubs.map(([name, short_name, colour_primary, colour_secondary, attack, defence]) => ({
         name,
         short_name,

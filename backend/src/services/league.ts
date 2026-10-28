@@ -54,12 +54,14 @@ export async function createLeague(client: PoolClient, input: CreateLeagueInput)
   }
 
   const fixtures = generateFixtures(clubIds);
+  const seasonStart = new Date(`${input.season_start_date ?? new Date().toISOString().slice(0, 10)}T12:00:00.000Z`);
   for (const fixture of fixtures) {
     assertFixtureClubsInLeague(leagueId, fixture.homeClubId, fixture.awayClubId, clubLeagueIds);
     await client.query(
-      `INSERT INTO matches (league_id, matchday, home_club_id, away_club_id)
-       VALUES ($1, $2, $3, $4)`,
-      [leagueId, fixture.matchday, fixture.homeClubId, fixture.awayClubId],
+      `INSERT INTO matches (league_id, matchday, home_club_id, away_club_id, scheduled_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [leagueId, fixture.matchday, fixture.homeClubId, fixture.awayClubId,
+        new Date(seasonStart.getTime() + (fixture.matchday - 1) * input.matchday_cadence_days * 86_400_000)],
     );
   }
 

@@ -171,6 +171,7 @@ export interface PlayerStat {
   rank: number;
   player_id: number | string;
   player_name: string;
+  position: string;
   club_id: number | string;
   club_name: string;
   short_name: string;
@@ -186,6 +187,11 @@ export interface PlayerStat {
   xg: number | string;
   key_passes: number;
   tackles: number;
+}
+
+export interface PlayerProfile {
+  player: { id: number | string; name: string; position: string; club_id: number | string; club_name: string; short_name: string; colour_primary: string; colour_secondary: string; league_id: number | string; league_name: string; season_label: string };
+  matches: Array<{ id: number | string; matchday: number; home_goals: number; away_goals: number; home_club_id: number | string; home_club_name: string; away_club_id: number | string; away_club_name: string; minutes_played: number; shots: number; shots_on_target: number; xg: number | string; key_passes: number; tackles: number; goals: number; assists: number; goals_timeline: Array<{ minute: number; minute_extra: number; type: string }>; rating: string }>;
 }
 
 export interface LeagueDetail {
@@ -214,5 +220,7 @@ export interface CreateLeaguePayload {
   points_draw: number;
   top_zone: number;
   bottom_zone: number;
+  season_start_date?: string;
+  matchday_cadence_days?: number;
   clubs: Array<Omit<Club, 'id'> & { attack: number; defence: number }>;
 }

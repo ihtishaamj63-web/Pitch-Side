@@ -51,6 +51,8 @@ export function CreateLeague() {
   const [clubs, setClubs] = useState(() => inventClubs(10));
   const [name, setName] = useState('');
   const [season, setSeason] = useState('2026/27');
+  const [seasonStartDate, setSeasonStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [matchdayCadence, setMatchdayCadence] = useState(7);
   const [clubCount, setClubCount] = useState(10);
   const [topZone, setTopZone] = useState(4);
   const [bottomZone, setBottomZone] = useState(3);
@@ -85,7 +87,7 @@ export function CreateLeague() {
     event.preventDefault();
     setBusy(true); setError('');
     try {
-      const created = await api.createLeague({ name, season_label: season, points_win: 3, points_draw: 1, top_zone: topZone, bottom_zone: bottomZone, clubs });
+      const created = await api.createLeague({ name, season_label: season, season_start_date: seasonStartDate, matchday_cadence_days: matchdayCadence, points_win: 3, points_draw: 1, top_zone: topZone, bottom_zone: bottomZone, clubs });
       navigate(`/leagues/${created.id}`);
     } catch (err) { setError(readableError(err)); }
     finally { setBusy(false); }
@@ -97,7 +99,7 @@ export function CreateLeague() {
     <p className="page-intro">Pick a name, set the season, and we'll dream up a cast of clubs to get you started.</p>
     <form className="form-panel" onSubmit={submit}>
       <div className="form-section"><div className="form-section-title"><span>01</span><div><h2>League identity</h2><p>Set the scene for your new season.</p></div></div>
-        <div className="form-grid"><label>LEAGUE NAME<input required maxLength={48} placeholder="e.g. The Night Division" value={name} onChange={e => setName(e.target.value)} /></label><label>SEASON LABEL<input required maxLength={20} value={season} onChange={e => setSeason(e.target.value)} /></label></div>
+        <div className="form-grid"><label>LEAGUE NAME<input required maxLength={48} placeholder="e.g. The Night Division" value={name} onChange={e => setName(e.target.value)} /></label><label>SEASON LABEL<input required maxLength={20} value={season} onChange={e => setSeason(e.target.value)} /></label><label>SEASON START<input type="date" required value={seasonStartDate} onChange={e => setSeasonStartDate(e.target.value)} /></label><label>MATCHDAY CADENCE<select value={matchdayCadence} onChange={e => setMatchdayCadence(Number(e.target.value))}><option value={7}>Every week</option><option value={3}>Every 3 days</option><option value={14}>Every 2 weeks</option></select></label></div>
       </div>
       <div className="form-section"><div className="form-section-title"><span>02</span><div><h2>Set the stage</h2><p>Choose your field of contenders.</p></div></div>
         <label>NUMBER OF CLUBS<select value={clubCount} onChange={e => regenerate(Number(e.target.value))}>{Array.from({ length: 17 }, (_, i) => i + 4).map(count => <option value={count} key={count}>{count} clubs</option>)}</select></label>

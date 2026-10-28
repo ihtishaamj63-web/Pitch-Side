@@ -7,6 +7,7 @@ import type {
   Match,
   MatchDetail,
   PlayerStat,
+  PlayerProfile,
   Standing,
   Tactics,
 } from './types';
@@ -106,6 +107,7 @@ export const api = {
   liveStreamUrl: (id: number | string) => `${API_URL}/api/leagues/${id}/live/stream`,
   playerStats: (id: number | string, upToMatchday?: number) =>
     request<PlayerStat[]>(`/api/leagues/${id}/player-stats${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
+  player: (id: number | string) => request<PlayerProfile>(`/api/players/${id}`),
   simulate: (id: number | string, action: 'next' | 'all') =>
     request<{ matchday?: number; matchdaysPlayed?: number; matchesPlayed?: number }>(`/api/leagues/${id}/simulate/${action}`, json()),
   simulateWithManager: (id: number | string, clubId: number, tactics: Tactics) =>
