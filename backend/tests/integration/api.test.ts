@@ -40,6 +40,40 @@ async function createLeague(clubCount = 4) {
 }
 
 describe('Pitch API', () => {
+  test('deleting one league leaves other leagues intact', async () => {
+    const leagueToDelete = await createLeague();
+    const leagueToKeep = await createLeague();
+
+    await request(app).delete(`/api/leagues/${leagueToDelete}`).expect(204);
+
+    const leagues = await request(app).get('/api/leagues').expect(200);
+    const ids = leagues.body.map((league: { id: number }) => Number(league.id));
+    expect(ids).not.toContain(Number(leagueToDelete));
+    expect(ids).toContain(Number(leagueToKeep));
+    await request(app).get(`/api/leagues/${leagueToKeep}`).expect(200);
+  });
+
+  test('manager mode keeps only the selected team fixture live', async () => {
+    const leagueId = await createLeague(4);
+    const club = await pool.query<{ id: number }>(
+      'SELECT id FROM clubs WHERE league_id = $1 ORDER BY id LIMIT 1', [leagueId],
+    );
+
+    await request(app)
+      .post(`/api/leagues/${leagueId}/matchdays/1/kickoff`)
+      .send({ speed: 'quick', managerClubId: club.rows[0].id, tactics: 'balanced' })
+      .expect(202);
+
+    const matches = await pool.query<{ status: string; home_club_id: number; away_club_id: number }>(
+      'SELECT status, home_club_id, away_club_id FROM matches WHERE league_id = $1 AND matchday = 1',
+      [leagueId],
+    );
+    const liveMatches = matches.rows.filter(match => match.status === 'live');
+    const finishedMatches = matches.rows.filter(match => match.status === 'finished');
+    expect(liveMatches).toHaveLength(1);
+    expect(finishedMatches).toHaveLength(1);
+    expect([liveMatches[0].home_club_id, liveMatches[0].away_club_id]).toContain(club.rows[0].id);
+  });
   test('creates a 16-club double round-robin season with full squads', async () => {
     const leagueId = await createLeague(16);
     const matches = await pool.query<{ count: number; matchdays: number }>(

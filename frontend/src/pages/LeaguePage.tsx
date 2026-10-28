@@ -131,7 +131,7 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
     <div className="simulation-actions">
       {!seasonComplete && !liveState.matches.length && <label className="live-speed-control">SPEED
         <select value={liveSpeed} onChange={event => setLiveSpeed(event.target.value as LiveSpeed)} aria-label="Live match speed">
-          <option value="quick">Fast · 90 sec</option><option value="standard">Standard · 15 min</option><option value="extended">Extended · 60 min</option>
+          <option value="quick">Fast · ~2 min</option><option value="standard">Standard · 15 min</option><option value="extended">Extended · 60 min</option>
         </select>
       </label>}
       {seasonComplete

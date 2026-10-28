@@ -28,7 +28,7 @@ services:
       DB_NAME: pitch_db
       DB_PORT: 5432
       PORT: 4000
-      SEED_DEMO: ${SEED_DEMO:-true}
+      SEED_DEMO: ${SEED_DEMO:-false}
     ports:
       - "4000:4000"
     volumes:
@@ -48,8 +48,8 @@ services:
   web:
     build:
       context: ./frontend
-      args:
-        VITE_API_URL: http://localhost:4000
+    args:
+      VITE_API_URL: http://localhost:4000
     ports:
       - "5173:5173"
     depends_on:

@@ -34,7 +34,7 @@ function readMatchday(value: unknown): number | undefined {
 }
 
 function liveDurationSeconds(speed: 'quick' | 'standard' | 'extended'): number {
-  const defaults = { quick: 90, standard: 900, extended: 3600 };
+  const defaults = { quick: 105, standard: 900, extended: 3600 };
   const configured = Number(process.env[`LIVE_SPEED_${speed.toUpperCase()}_SECONDS`]);
   return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : defaults[speed];
 }
@@ -322,6 +322,7 @@ leaguesRouter.post('/leagues/:id/matchdays/:matchday/kickoff', async (req, res) 
     const kickoffAt = new Date();
     const simulation = await simulateMatchday(client, leagueId, matchday, managerChoices, {
       live: true,
+      managerOnlyLive: Boolean(managerChoices),
       kickoffAt,
       durationSeconds: liveDurationSeconds(parsed.data.speed),
     });
