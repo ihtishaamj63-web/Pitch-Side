@@ -2,6 +2,9 @@ import { app } from './app';
 import { pool } from './db';
 import { ensureDemoLeague } from './services/demo';
 import { applyMigrations } from './services/migrations';
+import { finalizeElapsedMatches } from './services/simulation';
+import { withTransaction } from './services/transaction';
+import { publishLiveClockTicks } from './services/liveStream';
 
 async function start() {
   const appliedMigrations = await applyMigrations(pool);
@@ -17,8 +20,16 @@ async function start() {
   const server = app.listen(port, () => {
     console.log(`Pitch API listening on http://localhost:${port}`);
   });
+  const liveTicker = setInterval(() => {
+    void withTransaction(finalizeElapsedMatches)
+      .then(() => publishLiveClockTicks(pool))
+      .catch((error: unknown) => {
+      console.error('Live match ticker failed:', error);
+    });
+  }, 1_000);
 
   const shutdown = () => {
+    clearInterval(liveTicker);
     server.close(() => {
       void pool.end().finally(() => process.exit(0));
     });

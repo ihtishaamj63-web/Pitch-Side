@@ -4,6 +4,7 @@ import { pool } from '../db';
 import { ApiError } from '../errors';
 import { parseId } from '../validation';
 import { matchRowSelect } from '../lib/matchRowSelect';
+import { isEventRevealed, matchClockAt } from '../lib/matchClock';
 
 export const clubsRouter = Router();
 
@@ -58,6 +59,43 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
     { pointsWin: row.points_win, pointsDraw: row.points_draw },
   );
   const tableRow = table.find((entry) => entry.clubId === clubId);
+  const liveFixtures = fixtures.rows.filter((fixture) => fixture.status === 'live');
+  const liveEventResults = await Promise.all(liveFixtures.map((fixture) => pool.query(
+    `SELECT e.id, e.seq, e.type, e.club_id, e.player_id, p.name AS player_name,
+       e.secondary_player_id, secondary.name AS secondary_player_name,
+       e.payload, e.minute, e.minute_extra, e.commentary
+     FROM match_events e
+     LEFT JOIN players p ON p.id = e.player_id
+     LEFT JOIN players secondary ON secondary.id = e.secondary_player_id
+     WHERE e.match_id = $1 ORDER BY e.seq`,
+    [fixture.id],
+  )));
+  const liveEventsById = new Map(liveFixtures.map((fixture, index) => [fixture.id, liveEventResults[index].rows]));
+  const safeFixtures = fixtures.rows.map((fixture) => {
+    if (fixture.status !== 'live') return fixture;
+    const allEvents = liveEventsById.get(fixture.id) ?? [];
+    const firstExtra = Math.max(0, ...allEvents.filter((event) => event.minute === 45).map((event) => event.minute_extra));
+    const secondExtra = Math.max(0, ...allEvents.filter((event) => event.minute === 90).map((event) => event.minute_extra));
+    const clock = matchClockAt(fixture.kickoff_at, fixture.duration_seconds, new Date(), firstExtra, secondExtra);
+    const events = allEvents.filter((event) => isEventRevealed(event, clock));
+    return {
+      ...fixture,
+      home_goals: events.filter((event) => event.type === 'goal' && Number(event.club_id) === Number(fixture.home_club_id)).length,
+      away_goals: events.filter((event) => event.type === 'goal' && Number(event.club_id) === Number(fixture.away_club_id)).length,
+      home_xg: events.filter((event) => event.type === 'chance' && Number(event.club_id) === Number(fixture.home_club_id))
+        .reduce((sum, event) => sum + Number(event.payload?.xg ?? 0), 0).toFixed(3),
+      away_xg: events.filter((event) => event.type === 'chance' && Number(event.club_id) === Number(fixture.away_club_id))
+        .reduce((sum, event) => sum + Number(event.payload?.xg ?? 0), 0).toFixed(3),
+      minute: clock.minute,
+      minute_extra: clock.minuteExtra,
+      goal_events: events.filter((event) => event.type === 'goal').map((event) => ({
+        club_id: event.club_id, player_name: event.player_name,
+        assist_player_name: event.secondary_player_name, minute: event.minute,
+      })),
+      yellow_card_count: events.filter((event) => event.type === 'yellow').length,
+      red_card_count: events.filter((event) => event.type === 'red').length,
+    };
+  });
 
   res.json({
     club: {
@@ -73,6 +111,6 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
     league: { id: row.league_id, name: row.league_name, season_label: row.season_label },
     squad: squad.rows,
     form: tableRow?.form ?? [],
-    fixtures: fixtures.rows,
+    fixtures: safeFixtures,
   });
 });

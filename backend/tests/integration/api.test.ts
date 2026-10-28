@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { app } from '../../src/app';
 import { pool } from '../../src/db';
+import { finalizeElapsedMatches } from '../../src/services/simulation';
+import { withTransaction } from '../../src/services/transaction';
 
 const clubNames = [
   'Amberlight', 'Bracken Vale', 'Cinder Reach', 'Duskwater',
@@ -104,6 +106,93 @@ describe('Pitch API', () => {
       expect(goal.player_name).toEqual(expect.any(String));
       if (goal.assist_player_name !== null) expect(goal.assist_player_name).toEqual(expect.any(String));
     });
+  });
+
+  test('live kick-off reveals only clocked events and restart-safe finalization stores the result', async () => {
+    const leagueId = await createLeague();
+    const kickoff = await request(app)
+      .post(`/api/leagues/${leagueId}/matchdays/1/kickoff`)
+      .send({ speed: 'quick' })
+      .expect(202);
+    expect(kickoff.body).toMatchObject({ status: 'live', matchday: 1, matchesStarted: 2 });
+    const fixtures = await pool.query<{
+      id: number; home_club_id: number; away_club_id: number; simulation_result: { events: Array<{ type: string; minute: number; minuteExtra: number }> };
+    }>(
+      `SELECT id, home_club_id, away_club_id, simulation_result
+       FROM matches WHERE league_id = $1 AND matchday = 1 ORDER BY id`,
+      [leagueId],
+    );
+    const firstMatch = fixtures.rows[0];
+    const firstChance = firstMatch.simulation_result.events.find((event) => event.type === 'chance')!;
+    const fullEventRows = await pool.query(
+      'SELECT id, seq, type, minute, minute_extra FROM match_events WHERE match_id = $1 ORDER BY seq',
+      [firstMatch.id],
+    );
+    const firstExtra = Math.max(0, ...fullEventRows.rows.filter((event) => event.minute === 45).map((event) => event.minute_extra));
+    const elapsedSeconds = (firstChance.minute + firstChance.minuteExtra + 0.2) / (45 + firstExtra) * 45;
+    await pool.query(
+      `UPDATE matches SET kickoff_at = NOW() - ($1::numeric * INTERVAL '1 second'), duration_seconds = 90
+       WHERE id IN (SELECT id FROM matches WHERE league_id = $2 AND matchday = 1)`,
+      [elapsedSeconds, leagueId],
+    );
+
+    const report = await request(app).get(`/api/matches/${firstMatch.id}`).expect(200);
+    expect(report.body.status).toBe('live');
+    expect(report.body.events.some((event: { type: string }) => event.type === 'full_time')).toBe(false);
+    expect(report.body.events.every((event: { id: number }) => fullEventRows.rows.some((stored) => stored.id === event.id))).toBe(true);
+    expect(report.body.events.length).toBeLessThan(fullEventRows.rows.length);
+    expect(report.body.player_stats).toEqual([]);
+    expect(report.body.lineups.filter((player: { club_id: number; is_starter: boolean }) => player.club_id === firstMatch.home_club_id && player.is_starter)).toHaveLength(11);
+    expect(Object.keys(report.body.lineups[0]).sort()).toEqual(['club_id', 'is_starter', 'player_id', 'player_name', 'position']);
+    const revealedGoals = report.body.events.filter((event: { type: string }) => event.type === 'goal');
+    expect(report.body.home_goals).toBe(revealedGoals.filter((event: { club_id: number }) => event.club_id === firstMatch.home_club_id).length);
+    expect(report.body.away_goals).toBe(revealedGoals.filter((event: { club_id: number }) => event.club_id === firstMatch.away_club_id).length);
+
+    const fixturesRead = await request(app).get(`/api/leagues/${leagueId}/matches?matchday=1`).expect(200);
+    expect(fixturesRead.body.find((fixture: { id: number }) => fixture.id === firstMatch.id)).toMatchObject({
+      status: 'live', home_goals: report.body.home_goals, away_goals: report.body.away_goals,
+    });
+    const table = await request(app).get(`/api/leagues/${leagueId}/table`).expect(200);
+    expect(table.body.filter((row: { live: boolean }) => row.live)).toHaveLength(4);
+    const playerStats = await request(app).get(`/api/leagues/${leagueId}/player-stats`).expect(200);
+    expect(playerStats.body).toEqual([]);
+    const club = await request(app).get(`/api/clubs/${firstMatch.home_club_id}`).expect(200);
+    expect(club.body.fixtures.find((fixture: { id: number }) => fixture.id === firstMatch.id).home_goals).toBe(report.body.home_goals);
+    const incremental = await request(app).get(`/api/matches/${firstMatch.id}/live?after=0`).expect(200);
+    expect(incremental.body).toMatchObject({
+      status: 'live', home_goals: report.body.home_goals, away_goals: report.body.away_goals,
+    });
+    expect(incremental.body.events.every((event: { id: number }) => fullEventRows.rows.some((stored) => stored.id === event.id))).toBe(true);
+    const cursor = Math.max(0, ...incremental.body.events.map((event: { seq: number }) => event.seq));
+    const caughtUp = await request(app).get(`/api/matches/${firstMatch.id}/live?after=${cursor}`).expect(200);
+    expect(caughtUp.body.events).toEqual([]);
+    await request(app).post(`/api/leagues/${leagueId}/matchdays/2/kickoff`).send({ speed: 'quick' }).expect(409);
+
+    await pool.query(
+      `UPDATE matches SET kickoff_at = NOW() - make_interval(secs => duration_seconds + 10)
+       WHERE league_id = $1 AND status = 'live'`,
+      [leagueId],
+    );
+    await withTransaction(finalizeElapsedMatches);
+    const finished = await pool.query<{ status: string; home_goals: number; away_goals: number; simulation_result: { homeGoals: number; awayGoals: number } }>(
+      `SELECT status, home_goals, away_goals, simulation_result FROM matches WHERE id = $1`,
+      [firstMatch.id],
+    );
+    expect(finished.rows[0]).toMatchObject({
+      status: 'finished',
+      home_goals: finished.rows[0].simulation_result.homeGoals,
+      away_goals: finished.rows[0].simulation_result.awayGoals,
+    });
+    const tableHistory = await request(app).get(`/api/leagues/${leagueId}/table/history`).expect(200);
+    expect(tableHistory.body).toHaveLength(1);
+    expect(tableHistory.body[0].positions).toHaveLength(4);
+    await request(app).post(`/api/leagues/${leagueId}/reset`).expect(200);
+    await request(app).post(`/api/leagues/${leagueId}/simulate/next`).expect(200);
+    const instant = await pool.query<{ simulation_result: unknown }>(
+      'SELECT simulation_result FROM matches WHERE id = $1',
+      [firstMatch.id],
+    );
+    expect(instant.rows[0].simulation_result).toEqual(firstMatch.simulation_result);
   });
 
   test('simulates the full season in one request', async () => {
@@ -266,7 +355,7 @@ describe('Pitch API', () => {
         [clubId],
       )));
     await pool.query(
-      'UPDATE matches SET home_goals = 1, away_goals = 1, played_at = NOW() WHERE id = $1',
+      "UPDATE matches SET home_goals = 1, away_goals = 1, played_at = NOW(), status = 'finished' WHERE id = $1",
       [match.rows[0].id],
     );
     await pool.query(
@@ -298,7 +387,7 @@ describe('Pitch API', () => {
       pool.query<{ id: number }>('SELECT id FROM players WHERE club_id = $1 ORDER BY id LIMIT 1', [fixture.away_club_id]),
     ]);
     await pool.query(
-      'UPDATE matches SET home_goals = 1, away_goals = 0, played_at = NOW() WHERE id = $1',
+      "UPDATE matches SET home_goals = 1, away_goals = 0, played_at = NOW(), status = 'finished' WHERE id = $1",
       [fixture.id],
     );
     await pool.query(
@@ -364,8 +453,8 @@ describe('Pitch API', () => {
       minute: 66,
     });
     expect(match.body.team_stats).toEqual(expect.arrayContaining([
-      expect.objectContaining({ club_id: fixture.home_club_id, xg: '1.25', shots: 12 }),
-      expect.objectContaining({ club_id: fixture.away_club_id, xg: '0.31', saves: 4 }),
+      expect.objectContaining({ club_id: fixture.home_club_id, xg: '1.250', shots: 12 }),
+      expect.objectContaining({ club_id: fixture.away_club_id, xg: '0.310', saves: 4 }),
     ]));
     expect(match.body.player_stats).toHaveLength(3);
 

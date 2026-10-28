@@ -212,4 +212,11 @@ INSERT INTO schema_migrations (filename) VALUES
   ('001_match_events.sql'),
   ('002_detailed_match_stats.sql'),
   ('003_match_lineups.sql'),
-  ('004_match_lifecycle_events.sql');
+  ('004_match_lifecycle_events.sql'),
+  ('005_simulation_script.sql');
+
+-- Snapshot of migration 005_simulation_script.sql.
+ALTER TABLE matches
+  ALTER COLUMN home_xg TYPE NUMERIC(7, 3),
+  ALTER COLUMN away_xg TYPE NUMERIC(7, 3),
+  ADD COLUMN simulation_result JSONB;

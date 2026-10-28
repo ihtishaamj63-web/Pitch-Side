@@ -88,6 +88,24 @@ export interface SimulatedMatch extends PlayedMatch {
   teamStats: TeamMatchStats[];
   playerStats: PlayerMatchStats[];
   expectedGoals: ExpectedGoals;
+  events: SimulatedEvent[];
+}
+
+export type SimulationEventType =
+  | 'kickoff' | 'possession_spell' | 'chance' | 'shot_off_target' | 'shot_blocked'
+  | 'save' | 'goal' | 'corner' | 'foul' | 'yellow' | 'red' | 'substitution'
+  | 'half_time' | 'second_half' | 'full_time';
+
+export interface SimulatedEvent {
+  seq: number;
+  minute: number;
+  minuteExtra: number;
+  type: SimulationEventType;
+  clubId: ClubId | null;
+  playerId: ClubId | null;
+  secondaryPlayerId: ClubId | null;
+  payload: Record<string, number | string | boolean | null>;
+  commentary: string;
 }
 
 export type Tactics = 'attacking' | 'balanced' | 'defensive';
@@ -326,142 +344,7 @@ export function assignScorers(
   return scorers.sort((left, right) => left.minute - right.minute);
 }
 
-function assignAssist(
-  scorer: GoalScorer,
-  squad: SimulationPlayer[],
-  rng: RandomSource,
-): GoalScorer {
-  const eligible = squad
-    .filter((player) => player.id !== scorer.playerId && positionWeight(player.position) > 0 && participatingAt(player, scorer.minute));
-  if (eligible.length === 0) return scorer;
-  const player = eligible[Math.floor(rng() * eligible.length)];
-  return { ...scorer, assistPlayerId: player.id, assistPlayerName: player.name };
-}
-
-function assignPlayerEvents<T extends YellowCard>(
-  count: number,
-  homeClub: SimulationClub,
-  awayClub: SimulationClub,
-  rng: RandomSource,
-  excludedPlayerIds: Set<ClubId> = new Set(),
-): T[] {
-  const squads = [homeClub, awayClub].flatMap((club) =>
-    (club.players ?? []).map((player) => ({ clubId: club.id, player })),
-  );
-  if (squads.length === 0) return [];
-  return Array.from({ length: count }, () => {
-    const minute = Math.floor(rng() * 90) + 1;
-    const active = squads.filter(({ player }) => !excludedPlayerIds.has(player.id) && participatingAt(player, minute));
-    if (active.length === 0) return null;
-    const { clubId, player } = active[Math.floor(rng() * active.length)];
-    return {
-      clubId,
-      playerId: player.id,
-      playerName: player.name,
-      minute,
-    };
-  }).filter((event): event is NonNullable<typeof event> => event !== null)
-    .sort((left, right) => left.minute - right.minute) as T[];
-}
-
-function createTeamAndPlayerStats(
-  club: SimulationClub,
-  opponent: SimulationClub,
-  scorers: GoalScorer[],
-  expectedGoalsValue: number,
-  possession: number,
-  fouls: Foul[],
-  redCards: RedCard[],
-  rng: RandomSource,
-): { team: TeamMatchStats; players: PlayerMatchStats[] } {
-  const squad = club.players ?? [];
-  const eligible = squad.filter((player) => positionWeight(player.position) > 0 && (player.minutesPlayed ?? 90) > 0);
-  if (eligible.length === 0 && scorers.length > 0) {
-    throw new Error('Cannot record shots without an eligible outfield player');
-  }
-  const playerStats = new Map(squad.map((player) => [player.id, {
-    clubId: club.id,
-    playerId: player.id,
-    isStarter: player.isStarter ?? true,
-    minutesPlayed: player.minutesPlayed ?? 90,
-    shots: 0,
-    shotsOnTarget: 0,
-    xg: 0,
-    keyPasses: 0,
-    tackles: 0,
-  } satisfies PlayerMatchStats]));
-
-  for (const scorer of scorers) {
-    const stats = playerStats.get(scorer.playerId);
-    if (stats) {
-      stats.shots += 1;
-      stats.shotsOnTarget += 1;
-    }
-    if (scorer.assistPlayerId !== null) {
-      const assistStats = playerStats.get(scorer.assistPlayerId);
-      if (assistStats) assistStats.keyPasses += 1;
-    }
-  }
-  const shots = Math.max(scorers.length, samplePoisson(11.5, rng));
-  const shotsOnTarget = Math.min(shots, Math.max(scorers.length, samplePoisson(4.2, rng)));
-  for (let shot = scorers.length; shot < shots && eligible.length > 0; shot += 1) {
-    const minute = Math.floor(rng() * 90) + 1;
-    const available = eligible.filter(player => participatingAt(player, minute));
-    if (!available.length) continue;
-    const player = available[Math.floor(rng() * available.length)];
-    playerStats.get(player.id)!.shots += 1;
-  }
-  for (let shot = scorers.length; shot < shotsOnTarget && eligible.length > 0; shot += 1) {
-    const available = eligible.filter((player) => {
-      const stats = playerStats.get(player.id)!;
-      return stats.shotsOnTarget < stats.shots;
-    });
-    if (!available.length) break;
-    const player = available[Math.floor(rng() * available.length)];
-    playerStats.get(player.id)!.shotsOnTarget += 1;
-  }
-
-  const weightedShots = [...playerStats.values()].map((stats) => ({
-    stats,
-    rawXg: Array.from({ length: stats.shots }, () => 0.02 + rng() * 0.16)
-      .reduce((sum, value) => sum + value, 0),
-  }));
-  const rawXgTotal = weightedShots.reduce((sum, shot) => sum + shot.rawXg, 0);
-  weightedShots.forEach(({ stats, rawXg }) => {
-    stats.xg = rawXgTotal > 0 ? expectedGoalsValue * rawXg / rawXgTotal : 0;
-  });
-
-  const keyPassCount = samplePoisson(4, rng);
-  for (let index = 0; index < keyPassCount; index += 1) {
-    const minute = Math.floor(rng() * 90) + 1;
-    const player = eligible.filter((candidate) => ['MID', 'FWD'].includes(candidate.position.toUpperCase()) && participatingAt(candidate, minute));
-    if (player.length) playerStats.get(player[Math.floor(rng() * player.length)].id)!.keyPasses += 1;
-  }
-  const tackleCount = samplePoisson(25, rng);
-  for (let index = 0; index < tackleCount; index += 1) {
-    const minute = Math.floor(rng() * 90) + 1;
-    const available = eligible.filter(player => participatingAt(player, minute));
-    if (available.length) playerStats.get(available[Math.floor(rng() * available.length)].id)!.tackles += 1;
-  }
-  redCards.filter((card) => card.clubId === club.id).forEach((card) => {
-    const stats = playerStats.get(card.playerId);
-    if (stats) stats.minutesPlayed = Math.min(stats.minutesPlayed, Math.max(0, card.minute - (squad.find(player => player.id === card.playerId)?.startedAt ?? 0)));
-  });
-  const teamFouls = fouls.filter((foul) => foul.clubId === club.id).length;
-  const team: TeamMatchStats = {
-    clubId: club.id,
-    xg: expectedGoalsValue,
-    possession,
-    shots,
-    shotsOnTarget,
-    corners: samplePoisson(5.2, rng),
-    fouls: teamFouls,
-    saves: 0,
-  };
-  return { team, players: [...playerStats.values()] };
-}
-
-/** Simulates a match score and assigns weighted scorers with minute values. */
+/** Simulates a match as a deterministic sequence of possession, chances and outcomes. */
 export function simulateMatch(
   homeClub: SimulationClub,
   awayClub: SimulationClub,
@@ -469,68 +352,221 @@ export function simulateMatch(
   params: ExpectedGoalsParameters = {},
 ): SimulatedMatch {
   if (homeClub.id === awayClub.id) throw new Error('A club cannot play against itself');
-  const xg = calculateExpectedGoals(homeClub, awayClub, params);
-  const homeGoals = samplePoisson(xg.home, rng);
-  const awayGoals = samplePoisson(xg.away, rng);
+  const expected = calculateExpectedGoals(homeClub, awayClub, params);
   const homeLineup = prepareLineup(homeClub, rng);
   const awayLineup = prepareLineup(awayClub, rng);
-  const homeScheduledOffIds = new Set(homeLineup.substitutions.map(substitution => substitution.playerOffId));
-  const awayScheduledOffIds = new Set(awayLineup.substitutions.map(substitution => substitution.playerOffId));
-  const redCards = assignPlayerEvents<RedCard>(
-    Math.min(1, samplePoisson(0.12, rng)),
-    homeLineup.club,
-    awayLineup.club,
-    rng,
-    new Set([...homeScheduledOffIds, ...awayScheduledOffIds]),
-  );
-  for (const card of redCards) {
-    const player = [...(homeLineup.club.players ?? []), ...(awayLineup.club.players ?? [])]
-      .find(candidate => candidate.id === card.playerId);
-    if (player) {
-      player.leftAt = card.minute;
-      player.minutesPlayed = Math.max(0, card.minute - (player.startedAt ?? 0));
+  const home = homeLineup.club;
+  const away = awayLineup.club;
+  const teams = [home, away];
+  const substitutions = [...homeLineup.substitutions, ...awayLineup.substitutions];
+  const players = teams.flatMap((team) => team.players ?? []);
+  const playerStats = new Map(players.map((player) => [player.id, {
+    clubId: home.players?.some((candidate) => candidate.id === player.id) ? home.id : away.id,
+    playerId: player.id,
+    isStarter: player.isStarter ?? true,
+    minutesPlayed: player.minutesPlayed ?? 90,
+    shots: 0, shotsOnTarget: 0, xg: 0, keyPasses: 0, tackles: 0,
+  } satisfies PlayerMatchStats]));
+  const teamStats = new Map(teams.map((team) => [team.id, {
+    clubId: team.id, xg: 0, possession: 0, shots: 0, shotsOnTarget: 0,
+    corners: 0, fouls: 0, saves: 0,
+  } satisfies TeamMatchStats]));
+  const scores = new Map<ClubId, number>([[home.id, 0], [away.id, 0]]);
+  const possessionMinutes = new Map<ClubId, number>([[home.id, 0], [away.id, 0]]);
+  const yellowCounts = new Map<ClubId, number>();
+  const scorers: GoalScorer[] = [];
+  const yellowCards: YellowCard[] = [];
+  const redCards: RedCard[] = [];
+  const fouls: Foul[] = [];
+  const events: SimulatedEvent[] = [];
+  const substitutionsDone = new Set<ClubId>();
+  let lastLine = '';
+  const lastTemplateByType = new Map<string, string>();
+  let lastOpponentGoal: { clubId: ClubId; minute: number } | undefined;
+  const templates: Record<string, string[]> = {
+    kickoff: ['The referee gets the match under way.', 'And they are off.'],
+    possession_spell: ['{club} are keeping the ball moving.', '{club} work the ball through midfield.', '{club} settle into possession.'],
+    chance: ['{player}, the {role}, finds room to attack.', '{player} drives into a promising position.', '{player} helps turn the move into a chance.'],
+    shot_off_target: ['{player} sends the effort wide.', '{player} cannot keep the shot on target.', '{player} tries from distance, but it drifts wide.'],
+    shot_blocked: ['The defence blocks {player}’s shot.', '{player}’s effort is blocked.', 'A defender closes down {player}.'],
+    save: ['The keeper keeps out {player}’s shot.', '{player} forces a save.', 'The goalkeeper is equal to {player}’s effort.'],
+    goal: ['{player} finds the net.', '{player} finishes the chance.', '{player} scores for {club}.'],
+    corner: ['Corner to {club}.', '{club} win a corner.', 'The ball goes behind for a {club} corner.'],
+    foul: ['{player} is penalised for a foul.', 'Free kick after {player}’s challenge.', '{player} gives away a free kick.'],
+    yellow: ['{player} is shown a yellow card.', 'The referee books {player}.', 'A caution for {player}.'],
+    red: ['{player} is sent off.', 'The referee shows {player} a red card.', '{player} has to leave the pitch.'],
+    substitution: ['{player} comes on for {other}.', '{other} makes way for {player}.', 'A change for {club}: {player} replaces {other}.'],
+    half_time: ['The referee signals for half-time.'],
+    second_half: ['The second half is under way.'],
+    full_time: ['The final whistle goes.'],
+  };
+  const addEvent = (type: SimulationEventType, minute: number, extra = 0, clubId: ClubId | null = null,
+    playerId: ClubId | null = null, otherId: ClubId | null = null,
+    payload: SimulatedEvent['payload'] = {}) => {
+    const club = teams.find((team) => team.id === clubId)?.name ?? '';
+    const player = players.find((candidate) => candidate.id === playerId);
+    const other = players.find((candidate) => candidate.id === otherId)?.name ?? '';
+    const role = player?.position.toLowerCase() ?? 'player';
+    const options = templates[type] ?? ['The match continues.'];
+    let template = options[Math.floor(rng() * options.length)];
+    if (options.length > 1 && template === lastTemplateByType.get(type)) {
+      template = options.find((option) => option !== template)!;
     }
-  }
-  const homeScorers = assignScorers(homeGoals, homeLineup.club.players || [], rng, homeClub.id)
-    .map((scorer) => assignAssist(scorer, homeLineup.club.players || [], rng))
-    .sort((left, right) => left.minute - right.minute);
-  const awayScorers = assignScorers(awayGoals, awayLineup.club.players || [], rng, awayClub.id)
-    .map((scorer) => assignAssist(
-      scorer,
-      awayLineup.club.players || [],
-      rng,
-    ))
-    .sort((left, right) => left.minute - right.minute);
-  const scorers = homeScorers.concat(awayScorers)
-    .sort((left, right) => left.minute - right.minute);
-  const yellowCards = assignPlayerEvents<YellowCard>(Math.min(6, samplePoisson(2.2, rng)), homeLineup.club, awayLineup.club, rng);
-  const fouls = assignPlayerEvents<Foul>(samplePoisson(22, rng), homeLineup.club, awayLineup.club, rng);
-  const homePossession = clamp(
-    Math.round(50 + (homeClub.attack - awayClub.attack) * 0.15 + (rng() - 0.5) * 12),
-    30,
-    70,
-  );
-  const homeStats = createTeamAndPlayerStats(
-    homeLineup.club, awayLineup.club, homeScorers, xg.home, homePossession, fouls, redCards, rng,
-  );
-  const awayStats = createTeamAndPlayerStats(
-    awayLineup.club, homeLineup.club, awayScorers, xg.away, 100 - homePossession, fouls, redCards, rng,
-  );
-  homeStats.team.saves = Math.max(0, awayStats.team.shotsOnTarget - awayGoals);
-  awayStats.team.saves = Math.max(0, homeStats.team.shotsOnTarget - homeGoals);
+    let line = template
+      .replaceAll('{club}', club).replaceAll('{player}', player?.name ?? '').replaceAll('{other}', other).replaceAll('{role}', role);
+    if (type === 'goal' && clubId !== null) {
+      const difference = (scores.get(clubId) ?? 0) - (scores.get(clubId === home.id ? away.id : home.id) ?? 0);
+      if (difference > 0 && minute >= 85) line = `${player?.name ?? 'A scorer'} may have found a late winner.`;
+      else if (difference > 0) line = `${player?.name ?? 'A scorer'} puts ${club} in front.`;
+      else if (difference === 0 && lastOpponentGoal && minute - lastOpponentGoal.minute <= 5) line = `${player?.name ?? 'A scorer'} equalises within five minutes.`;
+      else if (difference === 0) line = `${player?.name ?? 'A scorer'} brings the sides level.`;
+    }
+    if (line === lastLine && options.length > 1) {
+      const alternative = options.find((option) => option !== template && option !== lastTemplateByType.get(type)) ?? options.find((option) => option !== template)!;
+      template = alternative;
+      line = alternative.replaceAll('{club}', club).replaceAll('{player}', player?.name ?? '').replaceAll('{other}', other).replaceAll('{role}', role);
+    }
+    lastLine = line;
+    lastTemplateByType.set(type, template);
+    events.push({ seq: events.length + 1, minute, minuteExtra: extra, type, clubId, playerId,
+      secondaryPlayerId: otherId, payload, commentary: `${minute}${extra ? `+${extra}` : ''}' ${line}` });
+  };
+  const activeOutfield = (team: SimulationClub, minute: number) => (team.players ?? [])
+    .filter((player) => positionWeight(player.position) > 0 && participatingAt(player, minute));
+  const selectPlayer = (team: SimulationClub, minute: number, attack = true) => {
+    const active = activeOutfield(team, minute);
+    if (!active.length) return undefined;
+    const weight = (player: SimulationPlayer) => {
+      const position = player.position.toUpperCase();
+      return attack ? (position === 'FWD' ? 4 : position === 'MID' ? 2 : 0.7)
+        : (position === 'DEF' ? 3 : position === 'MID' ? 2 : 0.7);
+    };
+    let ticket = rng() * active.reduce((total, player) => total + weight(player), 0);
+    for (const player of active) {
+      ticket -= weight(player);
+      if (ticket < 0) return player;
+    }
+    return active[active.length - 1];
+  };
+  const homeControl = (homeClub.attack + homeClub.defence) / 2;
+  const awayControl = (awayClub.attack + awayClub.defence) / 2;
+  const homeBall = clamp(0.525 + (homeControl - awayControl) * 0.002, 0.38, 0.62);
+  const firstExtra = 1 + Math.floor(rng() * 3);
+  const secondExtra = 1 + Math.floor(rng() * 5);
 
+  const playMinute = (minute: number, extra = 0) => {
+    for (const change of substitutions) {
+      if (change.minute !== minute || substitutionsDone.has(change.playerOnId)) continue;
+      substitutionsDone.add(change.playerOnId);
+      addEvent('substitution', minute, extra, change.clubId, change.playerOnId, change.playerOffId);
+    }
+    const attacking = rng() < homeBall ? home : away;
+    const defending = attacking.id === home.id ? away : home;
+    possessionMinutes.set(attacking.id, (possessionMinutes.get(attacking.id) ?? 0) + 1);
+    if (minute % 5 === 0 && extra === 0) addEvent('possession_spell', minute, 0, attacking.id);
+    const isChasing = (scores.get(attacking.id) ?? 0) < (scores.get(defending.id) ?? 0) && minute >= 65;
+    const isProtecting = (scores.get(attacking.id) ?? 0) > (scores.get(defending.id) ?? 0) && minute >= 65;
+    const fatigue = 1 - Math.max(0, minute - 60) / 30 * 0.08;
+    const attackManpower = 1 - redCards.filter((card) => card.clubId === attacking.id).length * 0.12;
+    const defenceManpower = 1 - redCards.filter((card) => card.clubId === defending.id).length * 0.12;
+    const chanceRate = clamp(0.24 * attacking.attack / Math.max(1, defending.defence)
+      * (isChasing ? 1.12 : isProtecting ? 0.94 : 1) * fatigue * attackManpower / Math.max(0.55, defenceManpower), 0.1, 0.38);
+    if (rng() < chanceRate) {
+      const shooter = selectPlayer(attacking, minute);
+      if (shooter) {
+        const playerStat = playerStats.get(shooter.id)!;
+        const chanceMakers = activeOutfield(attacking, minute).filter((player) => player.id !== shooter.id && ['MID', 'FWD'].includes(player.position.toUpperCase()));
+        const assister = chanceMakers.length && rng() < 0.67 ? chanceMakers[Math.floor(rng() * chanceMakers.length)] : undefined;
+        if (assister) playerStats.get(assister.id)!.keyPasses += 1;
+        const expectedForTeam = attacking.id === home.id ? expected.home : expected.away;
+        const shotXg = Number(clamp(expectedForTeam / 11 * (isChasing ? 1.12 : 1) * fatigue, 0.025, 0.34).toFixed(3));
+        playerStat.shots += 1;
+        playerStat.xg += shotXg;
+        teamStats.get(attacking.id)!.shots += 1;
+        teamStats.get(attacking.id)!.xg += shotXg;
+        addEvent('chance', minute, extra, attacking.id, shooter.id, assister?.id ?? null, { xg: shotXg });
+        const result = rng();
+        if (result < shotXg) {
+          playerStat.shotsOnTarget += 1;
+          teamStats.get(attacking.id)!.shotsOnTarget += 1;
+          const previousOpposingGoal = scorers.slice().reverse().find((goal) => goal.clubId !== attacking.id);
+          if (previousOpposingGoal) lastOpponentGoal = { clubId: previousOpposingGoal.clubId, minute: previousOpposingGoal.minute };
+          scores.set(attacking.id, (scores.get(attacking.id) ?? 0) + 1);
+          scorers.push({ clubId: attacking.id, playerId: shooter.id, playerName: shooter.name,
+            minute, assistPlayerId: assister?.id ?? null, assistPlayerName: assister?.name ?? null });
+          addEvent('goal', minute, extra, attacking.id, shooter.id, assister?.id ?? null,
+            { home_goals: scores.get(home.id)!, away_goals: scores.get(away.id)! });
+        } else if (result < shotXg + 0.22) {
+          playerStat.shotsOnTarget += 1;
+          teamStats.get(attacking.id)!.shotsOnTarget += 1;
+          teamStats.get(defending.id)!.saves += 1;
+          const keeper = (defending.players ?? []).find((player) => player.position.toUpperCase() === 'GK' && participatingAt(player, minute));
+          addEvent('save', minute, extra, defending.id, keeper?.id ?? null, shooter.id, { attacking_club_id: Number(attacking.id) });
+        } else if (result < shotXg + 0.45) {
+          addEvent('shot_blocked', minute, extra, attacking.id, shooter.id);
+          if (rng() < 0.2) {
+            teamStats.get(attacking.id)!.corners += 1;
+            addEvent('corner', minute, extra, attacking.id);
+          }
+        } else addEvent('shot_off_target', minute, extra, attacking.id, shooter.id);
+      }
+    }
+    if (rng() < 0.22) {
+      const offender = selectPlayer(defending, minute, false);
+      if (offender) {
+        fouls.push({ clubId: defending.id, playerId: offender.id, playerName: offender.name, minute });
+        teamStats.get(defending.id)!.fouls += 1;
+        addEvent('foul', minute, extra, defending.id, offender.id);
+        if (rng() < 0.1) {
+          yellowCards.push({ clubId: defending.id, playerId: offender.id, playerName: offender.name, minute });
+          yellowCounts.set(offender.id, (yellowCounts.get(offender.id) ?? 0) + 1);
+          addEvent('yellow', minute, extra, defending.id, offender.id);
+          if (yellowCounts.get(offender.id) === 2) {
+            const dismissed = defending.players?.find((player) => player.id === offender.id);
+            if (dismissed) dismissed.leftAt = minute;
+            playerStats.get(offender.id)!.minutesPlayed = Math.max(0, minute - (dismissed?.startedAt ?? 0));
+            redCards.push({ clubId: defending.id, playerId: offender.id, playerName: offender.name, minute });
+            addEvent('red', minute, extra, defending.id, offender.id, null, { second_yellow: true });
+          }
+        } else if (rng() < 0.005) {
+          const dismissed = defending.players?.find((player) => player.id === offender.id);
+          if (dismissed) dismissed.leftAt = minute;
+          playerStats.get(offender.id)!.minutesPlayed = Math.max(0, minute - (dismissed?.startedAt ?? 0));
+          redCards.push({ clubId: defending.id, playerId: offender.id, playerName: offender.name, minute });
+          addEvent('red', minute, extra, defending.id, offender.id);
+        }
+      }
+    }
+    const tackler = selectPlayer(defending, minute, false);
+    if (tackler && rng() < 0.28) playerStats.get(tackler.id)!.tackles += 1;
+  };
+
+  addEvent('kickoff', 0, 0, home.id);
+  for (let minute = 1; minute <= 45; minute += 1) playMinute(minute);
+  for (let extra = 1; extra <= firstExtra; extra += 1) playMinute(45, extra);
+  addEvent('half_time', 45, firstExtra, null, null, null, { home_goals: scores.get(home.id)!, away_goals: scores.get(away.id)! });
+  addEvent('second_half', 46, 0, home.id);
+  for (let minute = 46; minute <= 90; minute += 1) playMinute(minute);
+  for (let extra = 1; extra <= secondExtra; extra += 1) playMinute(90, extra);
+  addEvent('full_time', 90, secondExtra, null, null, null, { home_goals: scores.get(home.id)!, away_goals: scores.get(away.id)! });
+
+  const totalPossession = (possessionMinutes.get(home.id) ?? 0) + (possessionMinutes.get(away.id) ?? 0);
+  const homePossession = totalPossession ? Math.round((possessionMinutes.get(home.id) ?? 0) / totalPossession * 100) : 50;
+  teamStats.get(home.id)!.possession = homePossession;
+  teamStats.get(away.id)!.possession = 100 - homePossession;
   return {
-    homeClubId: homeClub.id,
-    awayClubId: awayClub.id,
-    homeGoals,
-    awayGoals,
+    homeClubId: home.id,
+    awayClubId: away.id,
+    homeGoals: scores.get(home.id)!,
+    awayGoals: scores.get(away.id)!,
     scorers,
     yellowCards,
     redCards,
     fouls,
-    substitutions: [...homeLineup.substitutions, ...awayLineup.substitutions],
-    teamStats: [homeStats.team, awayStats.team],
-    playerStats: [...homeStats.players, ...awayStats.players],
-    expectedGoals: xg,
+    substitutions,
+    teamStats: [teamStats.get(home.id)!, teamStats.get(away.id)!],
+    playerStats: [...playerStats.values()],
+    expectedGoals: { home: teamStats.get(home.id)!.xg, away: teamStats.get(away.id)!.xg },
+    events,
   };
 }

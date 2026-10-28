@@ -95,6 +95,13 @@ describe('samplePoisson', () => {
 });
 
 describe('scorer assignment and match simulation', () => {
+  const makeEleven = (clubId: number): SimulationPlayer[] => [
+    { id: clubId * 100 + 1, name: `Keeper ${clubId}`, position: 'GK' },
+    ...Array.from({ length: 4 }, (_, index) => ({ id: clubId * 100 + 2 + index, name: `Defender ${clubId}-${index}`, position: 'DEF' })),
+    ...Array.from({ length: 4 }, (_, index) => ({ id: clubId * 100 + 6 + index, name: `Midfielder ${clubId}-${index}`, position: 'MID' })),
+    ...Array.from({ length: 2 }, (_, index) => ({ id: clubId * 100 + 10 + index, name: `Forward ${clubId}-${index}`, position: 'FWD' })),
+  ];
+
   it('assigns the requested number of goals, excludes keepers, and sorts minutes', () => {
     const squad: SimulationPlayer[] = [
       { id: 1, name: 'Keeper', position: 'GK' },
@@ -224,6 +231,81 @@ describe('scorer assignment and match simulation', () => {
         if (endedAt !== undefined) expect(scorer.minute).toBeLessThan(endedAt);
         else expect(scorer.minute).toBeLessThanOrEqual(90);
       });
+    }
+  });
+
+  it('calibrates seeded results and keeps all shot-derived statistics coherent', () => {
+    const balancedHome: SimulationClub = { id: 91, name: 'Balanced Home', attack: 70, defence: 70, players: makeEleven(91) };
+    const balancedAway: SimulationClub = { id: 92, name: 'Balanced Away', attack: 70, defence: 70, players: makeEleven(92) };
+    const stronger: SimulationClub = { id: 93, name: 'Stronger', attack: 92, defence: 92, players: makeEleven(93) };
+    const weaker: SimulationClub = { id: 94, name: 'Weaker', attack: 48, defence: 48, players: makeEleven(94) };
+    let totalGoals = 0;
+    let homeWins = 0;
+    let awayWins = 0;
+    let strongerWins = 0;
+    const runs = 2_000;
+
+    for (let seed = 1; seed <= runs; seed += 1) {
+      const result = simulateMatch(balancedHome, balancedAway, mulberry32(seed));
+      totalGoals += result.homeGoals + result.awayGoals;
+      if (result.homeGoals > result.awayGoals) homeWins += 1;
+      if (result.homeGoals < result.awayGoals) awayWins += 1;
+      for (const [index, stats] of result.teamStats.entries()) {
+        const opponentStats = result.teamStats[1 - index];
+        const goals = index === 0 ? result.homeGoals : result.awayGoals;
+        const opponentGoals = index === 0 ? result.awayGoals : result.homeGoals;
+        expect(goals).toBeLessThanOrEqual(stats.shotsOnTarget);
+        expect(stats.shotsOnTarget).toBeLessThanOrEqual(stats.shots);
+        expect(stats.saves + opponentGoals).toBe(opponentStats.shotsOnTarget);
+        const shotXg = result.events
+          .filter((event) => event.clubId === stats.clubId && event.type === 'chance')
+          .reduce((sum, event) => sum + Number(event.payload.xg ?? 0), 0);
+        expect(stats.xg).toBeCloseTo(shotXg, 8);
+      }
+      expect(result.events[0].type).toBe('kickoff');
+      expect(result.events[result.events.length - 1].type).toBe('full_time');
+      expect(result.events.map((event) => event.seq)).toEqual(result.events.map((_, index) => index + 1));
+    }
+
+    const meanGoals = totalGoals / runs;
+    expect(meanGoals).toBeGreaterThanOrEqual(2.4);
+    expect(meanGoals).toBeLessThanOrEqual(2.9);
+    expect(homeWins / runs).toBeGreaterThan(0.33);
+    expect(homeWins).toBeGreaterThan(awayWins);
+
+    for (let seed = 1; seed <= 600; seed += 1) {
+      const result = simulateMatch(stronger, weaker, mulberry32(seed));
+      if (result.homeGoals > result.awayGoals) strongerWins += 1;
+    }
+    expect(strongerWins / 600).toBeGreaterThan(0.65);
+  });
+
+  it('keeps player actions inside their time on the pitch', () => {
+    const makeSquadWithBench = (clubId: number): SimulationPlayer[] => [
+      ...makeEleven(clubId),
+      ...Array.from({ length: 3 }, (_, index) => ({
+        id: clubId * 100 + 20 + index,
+        name: `Bench defender ${clubId}-${index}`,
+        position: 'DEF',
+      })),
+    ];
+    const result = simulateMatch(
+      { id: 95, name: 'Home XI', attack: 70, defence: 70, players: makeSquadWithBench(95) },
+      { id: 96, name: 'Away XI', attack: 70, defence: 70, players: makeSquadWithBench(96) },
+      mulberry32(45),
+    );
+
+    for (const event of result.events) {
+      if (event.playerId === null || !['chance', 'goal', 'save', 'foul', 'yellow', 'red'].includes(event.type)) continue;
+      const substitutionOn = result.substitutions.find((substitution) => substitution.playerOnId === event.playerId);
+      const substitutionOff = result.substitutions.find((substitution) => substitution.playerOffId === event.playerId);
+      const redCard = result.redCards.find((card) => card.playerId === event.playerId);
+      const startedAt = substitutionOn?.minute ?? 0;
+      const endedAt = substitutionOff?.minute ?? redCard?.minute;
+      expect(event.minute).toBeGreaterThanOrEqual(startedAt);
+      if (endedAt !== undefined) {
+        expect(event.minute < endedAt || (event.type === 'red' && event.minute === endedAt)).toBe(true);
+      }
     }
   });
 });

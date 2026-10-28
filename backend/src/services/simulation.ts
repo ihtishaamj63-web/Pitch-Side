@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { applyTactics, mulberry32, simulateMatch } from '../lib';
-import type { ManagerChoices, ManagerMatchSummary, SimulationPlayer } from '../lib';
+import type { ManagerChoices, ManagerMatchSummary, SimulatedMatch, SimulationPlayer } from '../lib';
+import { HALF_TIME_PAUSE_SECONDS } from '../lib/matchClock';
 
 interface RatedClub {
   id: number;
@@ -25,6 +26,7 @@ export async function simulateMatchday(
   leagueId: number,
   matchday: number,
   managerChoices?: ManagerChoices,
+  options: { live?: boolean; kickoffAt?: Date; durationSeconds?: number } = {},
 ): Promise<{ matchesPlayed: number; managerMatch: ManagerMatchSummary | null }> {
   const matches = await client.query<{
     id: number;
@@ -33,7 +35,7 @@ export async function simulateMatchday(
   }>(
     `SELECT id, home_club_id, away_club_id
      FROM matches
-     WHERE league_id = $1 AND matchday = $2 AND home_goals IS NULL
+     WHERE league_id = $1 AND matchday = $2 AND status = 'scheduled' AND home_goals IS NULL
      ORDER BY id`,
     [leagueId, matchday],
   );
@@ -75,68 +77,39 @@ export async function simulateMatchday(
       rng,
     );
 
-    await client.query(
-      `UPDATE matches
-       SET home_goals = $1, away_goals = $2, home_xg = $3, away_xg = $4,
-         played_at = NOW(), status = 'finished', kickoff_at = COALESCE(kickoff_at, NOW())
-       WHERE id = $5`,
-      [result.homeGoals, result.awayGoals, result.expectedGoals.home, result.expectedGoals.away, match.id],
-    );
+    if (options.live) {
+      await client.query(
+        `UPDATE matches
+         SET status = 'live', kickoff_at = $1, duration_seconds = $2,
+           home_goals = NULL, away_goals = NULL, home_xg = NULL, away_xg = NULL,
+           played_at = NULL, simulation_result = $3::jsonb
+         WHERE id = $4`,
+        [options.kickoffAt ?? new Date(), options.durationSeconds ?? 90, JSON.stringify(result), match.id],
+      );
+    } else {
+      await client.query(
+        `UPDATE matches
+         SET home_goals = $1, away_goals = $2, home_xg = $3, away_xg = $4,
+           played_at = NOW(), status = 'finished', kickoff_at = COALESCE(kickoff_at, NOW()),
+           simulation_result = $5::jsonb
+         WHERE id = $6`,
+        [result.homeGoals, result.awayGoals, result.expectedGoals.home, result.expectedGoals.away,
+          JSON.stringify(result), match.id],
+      );
+    }
 
-    const matchEvents = [
-      ...result.scorers.map((event) => ({
-        minute: event.minute, type: 'goal', clubId: event.clubId, playerId: event.playerId,
-        secondaryPlayerId: event.assistPlayerId, payload: { assist_player_id: event.assistPlayerId },
-      })),
-      ...result.yellowCards.map((event) => ({
-        minute: event.minute, type: 'yellow', clubId: event.clubId, playerId: event.playerId,
-        secondaryPlayerId: null, payload: {},
-      })),
-      ...result.redCards.map((event) => ({
-        minute: event.minute, type: 'red', clubId: event.clubId, playerId: event.playerId,
-        secondaryPlayerId: null, payload: {},
-      })),
-      ...result.fouls.map((event) => ({
-        minute: event.minute, type: 'foul', clubId: event.clubId, playerId: event.playerId,
-        secondaryPlayerId: null, payload: {},
-      })),
-      ...result.substitutions.map((event) => ({
-        minute: event.minute, type: 'substitution', clubId: event.clubId, playerId: event.playerOnId,
-        secondaryPlayerId: event.playerOffId,
-        payload: { player_on_id: event.playerOnId, player_off_id: event.playerOffId },
-      })),
-    ].sort((left, right) => left.minute - right.minute || left.type.localeCompare(right.type));
-    for (const [index, event] of matchEvents.entries()) {
+    for (const event of result.events) {
       await client.query(
         `INSERT INTO match_events
-          (match_id, seq, minute, type, club_id, player_id, secondary_player_id, payload)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [match.id, index + 1, event.minute, event.type, event.clubId, event.playerId,
-          event.secondaryPlayerId, JSON.stringify(event.payload)],
-      );
-    }
-    for (const stats of result.teamStats) {
-      await client.query(
-        `INSERT INTO match_team_stats
-          (match_id, club_id, possession, shots, shots_on_target, corners, fouls, saves)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          match.id, stats.clubId, stats.possession, stats.shots, stats.shotsOnTarget,
-          stats.corners, stats.fouls, stats.saves,
-        ],
-      );
-    }
-    for (const stats of result.playerStats) {
-      await client.query(
-        `INSERT INTO player_match_stats
-          (match_id, club_id, player_id, is_starter, minutes_played, shots, shots_on_target, xg, key_passes, tackles)
+          (match_id, seq, minute, minute_extra, type, club_id, player_id,
+           secondary_player_id, payload, commentary)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          match.id, stats.clubId, stats.playerId, stats.isStarter, stats.minutesPlayed,
-          stats.shots, stats.shotsOnTarget, stats.xg, stats.keyPasses, stats.tackles,
-        ],
+        [match.id, event.seq, event.minute, event.minuteExtra, event.type,
+          event.clubId, event.playerId, event.secondaryPlayerId,
+          JSON.stringify(event.payload), event.commentary],
       );
     }
+    if (!options.live) await storeMatchStats(client, match.id, result);
     if (managerChoices && (homeIsManager || awayIsManager)) {
       const isHome = homeIsManager;
       managerMatch = {
@@ -157,9 +130,54 @@ export async function simulateMatchday(
   return { matchesPlayed: matches.rows.length, managerMatch };
 }
 
+async function storeMatchStats(client: PoolClient, matchId: number, result: SimulatedMatch): Promise<void> {
+  for (const stats of result.teamStats) {
+    await client.query(
+      `INSERT INTO match_team_stats
+        (match_id, club_id, possession, shots, shots_on_target, corners, fouls, saves)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [matchId, stats.clubId, stats.possession, stats.shots, stats.shotsOnTarget,
+        stats.corners, stats.fouls, stats.saves],
+    );
+  }
+  for (const stats of result.playerStats) {
+    await client.query(
+      `INSERT INTO player_match_stats
+        (match_id, club_id, player_id, is_starter, minutes_played, shots, shots_on_target, xg, key_passes, tackles)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [matchId, stats.clubId, stats.playerId, stats.isStarter, stats.minutesPlayed,
+        stats.shots, stats.shotsOnTarget, stats.xg, stats.keyPasses, stats.tackles],
+    );
+  }
+}
+
+export async function finalizeElapsedMatches(client: PoolClient): Promise<number> {
+  const dueMatches = await client.query<{ id: number; simulation_result: SimulatedMatch }>(
+    `SELECT id, simulation_result
+     FROM matches
+     WHERE status = 'live' AND kickoff_at IS NOT NULL
+       AND kickoff_at + make_interval(secs => duration_seconds + $1) <= NOW()
+     FOR UPDATE SKIP LOCKED`,
+    [HALF_TIME_PAUSE_SECONDS],
+  );
+  for (const match of dueMatches.rows) {
+    const result = match.simulation_result;
+    await client.query(
+      `UPDATE matches
+       SET status = 'finished', home_goals = $1, away_goals = $2,
+         home_xg = $3, away_xg = $4, played_at = NOW()
+       WHERE id = $5 AND status = 'live'`,
+      [result.homeGoals, result.awayGoals, result.expectedGoals.home, result.expectedGoals.away, match.id],
+    );
+    await storeMatchStats(client, match.id, result);
+  }
+  return dueMatches.rows.length;
+}
+
 export async function findNextMatchday(client: PoolClient, leagueId: number): Promise<number | null> {
   const result = await client.query<{ matchday: number | null }>(
-    'SELECT MIN(matchday) AS matchday FROM matches WHERE league_id = $1 AND home_goals IS NULL',
+    `SELECT MIN(matchday) AS matchday FROM matches
+     WHERE league_id = $1 AND status = 'scheduled' AND home_goals IS NULL`,
     [leagueId],
   );
   return result.rows[0]?.matchday ?? null;

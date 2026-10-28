@@ -25,6 +25,8 @@ export type {
   PlayerMatchStats,
   RedCard,
   SimulatedMatch,
+  SimulatedEvent,
+  SimulationEventType,
   SimulationPlayer,
   SimulationClub,
   Substitution,

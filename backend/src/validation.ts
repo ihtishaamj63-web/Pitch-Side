@@ -40,6 +40,10 @@ export const simulateNextSchema = z.object({
   { message: 'managerClubId and tactics must be supplied together' },
 );
 
+export const kickoffSchema = simulateNextSchema.extend({
+  speed: z.enum(['instant', 'quick', 'standard', 'extended']).default('standard'),
+});
+
 export function parseId(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) throw new ApiError('Invalid id', 400);
   const id = Number(value);

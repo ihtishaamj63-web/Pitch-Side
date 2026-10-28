@@ -35,6 +35,7 @@ export interface Club {
 export interface Standing extends Club {
   position: number;
   movement?: number;
+  live?: boolean;
   club_id: number | string;
   club_name: string;
   P: number;
@@ -68,11 +69,16 @@ export interface Match {
   kickoff_at?: string | null;
   duration_seconds?: number;
   scheduled_at?: string | null;
+  minute?: number | null;
+  minute_extra?: number | null;
+  period?: 'scheduled' | 'first_half' | 'half_time' | 'second_half' | 'full_time' | null;
+  clock?: { minute: number; minute_extra: number; period: string } | null;
   home_xg?: number | null;
   away_xg?: number | null;
   yellow_card_count?: number;
   red_card_count?: number;
   played_at: string | null;
+  last_event?: MatchEvent | null;
   goal_events?: Array<Pick<MatchGoal, 'club_id' | 'player_name' | 'assist_player_name' | 'minute'>>;
 }
 
@@ -135,6 +141,8 @@ export interface MatchPlayerStats {
 }
 
 export interface MatchDetail extends Match {
+  lineups?: Array<{ club_id: number | string; player_id: number | string; player_name: string; position: string; is_starter: boolean }>;
+  events: MatchEvent[];
   goals: MatchGoal[];
   yellow_cards: MatchPersonEvent[];
   red_cards: MatchPersonEvent[];
@@ -142,6 +150,21 @@ export interface MatchDetail extends Match {
   substitutions: MatchSubstitution[];
   team_stats: MatchTeamStats[];
   player_stats: MatchPlayerStats[];
+}
+
+export interface MatchEvent {
+  id: number | string;
+  seq: number;
+  minute: number;
+  minute_extra: number;
+  type: string;
+  club_id: number | string | null;
+  player_id: number | string | null;
+  secondary_player_id: number | string | null;
+  player_name?: string | null;
+  secondary_player_name?: string | null;
+  payload: Record<string, number | string | boolean | null>;
+  commentary: string | null;
 }
 
 export interface PlayerStat {

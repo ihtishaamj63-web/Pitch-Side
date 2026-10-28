@@ -76,6 +76,19 @@ export interface ManagerSimulationResponse {
   managerMatch: ManagerMatchSummary | null;
 }
 
+export interface LiveMatchUpdate {
+  now: string;
+  status: 'scheduled' | 'live' | 'finished';
+  minute: number;
+  minute_extra: number;
+  period: string;
+  home_goals: number | null;
+  away_goals: number | null;
+  events: MatchDetail['events'];
+}
+
+export type LiveSpeed = 'instant' | 'quick' | 'standard' | 'extended';
+
 export const api = {
   leagues: () => request<LeagueSummary[]>('/api/leagues'),
   createLeague: (data: CreateLeaguePayload) => request<{ id: number | string }>('/api/leagues', json(data)),
@@ -83,9 +96,14 @@ export const api = {
   league: (id: number | string) => request<LeagueDetail>(`/api/leagues/${id}`),
   table: (id: number | string, upToMatchday?: number) =>
     request<Standing[]>(`/api/leagues/${id}/table${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
+  tableHistory: (id: number | string) =>
+    request<Array<{ matchday: number; positions: Array<{ club_id: number | string; club_name: string; position: number }> }>>(`/api/leagues/${id}/table/history`),
   matches: (id: number | string, matchday?: number) =>
     request<Match[]>(`/api/leagues/${id}/matches${matchday ? `?matchday=${matchday}` : ''}`),
   match: (id: number | string) => request<MatchDetail>(`/api/matches/${id}`),
+  matchLive: (id: number | string, after = 0) => request<LiveMatchUpdate>(`/api/matches/${id}/live?after=${after}`),
+  live: (id: number | string) => request<{ status: 'idle' | 'live'; matchday: number | null; matches: Match[] }>(`/api/leagues/${id}/live`),
+  liveStreamUrl: (id: number | string) => `${API_URL}/api/leagues/${id}/live/stream`,
   playerStats: (id: number | string, upToMatchday?: number) =>
     request<PlayerStat[]>(`/api/leagues/${id}/player-stats${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
   simulate: (id: number | string, action: 'next' | 'all') =>
@@ -95,6 +113,13 @@ export const api = {
       `/api/leagues/${id}/simulate/next`,
       json({ managerClubId: clubId, tactics }),
     ),
+  kickoffMatchday: (id: number | string, matchday: number, speed: LiveSpeed, manager?: { clubId: number; tactics: Tactics }) =>
+    request<{ matchday: number; matchesStarted?: number; matchesFinished?: number; status: 'live' | 'finished' }>(
+      `/api/leagues/${id}/matchdays/${matchday}/kickoff`,
+      json({ speed, ...(manager ? { managerClubId: manager.clubId, tactics: manager.tactics } : {}) }),
+    ),
+  skipLiveMatchday: (id: number | string) =>
+    request<{ status: string; matchesFinished: number }>(`/api/leagues/${id}/live/skip`, json()),
   resetLeague: (id: number | string) =>
     request<{ status: string }>(`/api/leagues/${id}/reset`, json()),
   club: (id: number | string) => request<ClubDetail>(`/api/clubs/${id}`),

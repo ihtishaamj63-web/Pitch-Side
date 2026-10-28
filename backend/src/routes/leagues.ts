@@ -2,12 +2,13 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { PoolClient } from 'pg';
 import { computeTable } from '../lib';
+import { HALF_TIME_PAUSE_SECONDS, isEventRevealed, matchClockAt } from '../lib/matchClock';
 import { pool } from '../db';
 import { ApiError } from '../errors';
 import { createLeague } from '../services/league';
-import { findNextMatchday, simulateMatchday } from '../services/simulation';
+import { findNextMatchday, finalizeElapsedMatches, simulateMatchday } from '../services/simulation';
 import { withTransaction } from '../services/transaction';
-import { createLeagueSchema, parseId, simulateNextSchema } from '../validation';
+import { createLeagueSchema, kickoffSchema, parseId, simulateNextSchema } from '../validation';
 
 export const leaguesRouter = Router();
 
@@ -32,6 +33,12 @@ function readMatchday(value: unknown): number | undefined {
   return matchday;
 }
 
+function liveDurationSeconds(speed: 'quick' | 'standard' | 'extended'): number {
+  const defaults = { quick: 90, standard: 900, extended: 3600 };
+  const configured = Number(process.env[`LIVE_SPEED_${speed.toUpperCase()}_SECONDS`]);
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : defaults[speed];
+}
+
 async function tableForLeague(
   league: { id: number; points_win: number; points_draw: number; top_zone: number; bottom_zone: number },
   upToMatchday?: number,
@@ -43,14 +50,42 @@ async function tableForLeague(
       [league.id],
     ),
     pool.query(
-      `SELECT matchday, home_club_id, away_club_id, home_goals, away_goals, played_at
+      `SELECT id, matchday, home_club_id, away_club_id, home_goals, away_goals, played_at,
+         status, kickoff_at, duration_seconds
        FROM matches
-       WHERE league_id = $1 AND home_goals IS NOT NULL
+       WHERE league_id = $1 AND (home_goals IS NOT NULL OR status = 'live')
          AND ($2::int IS NULL OR matchday <= $2)
        ORDER BY matchday, id`,
       [league.id, upToMatchday ?? null],
     ),
   ]);
+
+  const liveMatchIds = matchesResult.rows.filter((match) => match.status === 'live').map((match) => match.id);
+  const liveEvents = liveMatchIds.length
+    ? await pool.query(
+      `SELECT match_id, seq, type, club_id, minute, minute_extra, payload
+       FROM match_events WHERE match_id = ANY($1::int[]) ORDER BY match_id, seq`,
+      [liveMatchIds],
+    )
+    : { rows: [] as Array<{ match_id: number; seq: number; type: string; club_id: number | null; minute: number; minute_extra: number; payload: Record<string, unknown> }> };
+  const eventsByMatch = new Map<number, typeof liveEvents.rows>();
+  liveEvents.rows.forEach((event) => eventsByMatch.set(event.match_id, [...(eventsByMatch.get(event.match_id) ?? []), event]));
+  const liveClubIds = new Set<number>();
+  const matchesForTable = matchesResult.rows.map((match) => {
+    if (match.status !== 'live') return match;
+    liveClubIds.add(Number(match.home_club_id));
+    liveClubIds.add(Number(match.away_club_id));
+    const events = eventsByMatch.get(match.id) ?? [];
+    const firstExtra = Math.max(0, ...events.filter((event) => event.minute === 45).map((event) => event.minute_extra));
+    const secondExtra = Math.max(0, ...events.filter((event) => event.minute === 90).map((event) => event.minute_extra));
+    const clock = matchClockAt(match.kickoff_at, match.duration_seconds, new Date(), firstExtra, secondExtra);
+    const revealed = events.filter((event) => isEventRevealed(event, clock));
+    return {
+      ...match,
+      home_goals: revealed.filter((event) => event.type === 'goal' && Number(event.club_id) === Number(match.home_club_id)).length,
+      away_goals: revealed.filter((event) => event.type === 'goal' && Number(event.club_id) === Number(match.away_club_id)).length,
+    };
+  });
 
   const clubs = clubsResult.rows.map((club) => ({
     id: club.id,
@@ -58,7 +93,7 @@ async function tableForLeague(
     attack: club.attack,
     defence: club.defence,
   }));
-  const playedMatches = matchesResult.rows.map((match) => ({
+  const playedMatches = matchesForTable.map((match) => ({
     matchday: match.matchday,
     homeClubId: match.home_club_id,
     awayClubId: match.away_club_id,
@@ -70,11 +105,11 @@ async function tableForLeague(
     pointsWin: league.points_win,
     pointsDraw: league.points_draw,
   });
-  const latestMatchday = upToMatchday ?? Math.max(0, ...matchesResult.rows.map((match) => match.matchday));
+  const latestMatchday = upToMatchday ?? Math.max(0, ...matchesForTable.map((match) => match.matchday));
   const previousTable = latestMatchday > 0
     ? computeTable(
       clubs,
-      matchesResult.rows
+      matchesForTable
         .filter((match) => match.matchday < latestMatchday)
         .map((match) => ({
           matchday: match.matchday,
@@ -97,6 +132,7 @@ async function tableForLeague(
       name: row.clubName,
       position: row.position,
       movement: (previousPositions.get(row.clubId) ?? row.position) - row.position,
+      live: liveClubIds.has(Number(row.clubId)),
       club_id: row.clubId,
       club_name: row.clubName,
       short_name: club.short_name,
@@ -174,6 +210,33 @@ leaguesRouter.get('/leagues/:id/table', async (req, res) => {
   res.json(await tableForLeague(league, upToMatchday));
 });
 
+leaguesRouter.get('/leagues/:id/table/history', async (req, res) => {
+  const id = parseId(req.params.id);
+  const league = await requireLeague(id);
+  const [clubsResult, matchesResult] = await Promise.all([
+    pool.query('SELECT id, name, attack, defence FROM clubs WHERE league_id = $1 ORDER BY id', [id]),
+    pool.query(
+      `SELECT matchday, home_club_id, away_club_id, home_goals, away_goals
+       FROM matches WHERE league_id = $1 AND status = 'finished' ORDER BY matchday, id`, [id],
+    ),
+  ]);
+  const clubs = clubsResult.rows.map((club) => ({ id: club.id, name: club.name, attack: club.attack, defence: club.defence }));
+  const matchdays = Math.max(0, ...matchesResult.rows.map((match) => match.matchday));
+  const history = Array.from({ length: matchdays }, (_, index) => {
+    const matchday = index + 1;
+    const completed = matchesResult.rows.filter((match) => match.matchday <= matchday).map((match) => ({
+      matchday: match.matchday, homeClubId: match.home_club_id, awayClubId: match.away_club_id,
+      homeGoals: match.home_goals, awayGoals: match.away_goals,
+    }));
+    return {
+      matchday,
+      positions: computeTable(clubs, completed, { pointsWin: league.points_win, pointsDraw: league.points_draw })
+        .map((row) => ({ club_id: row.clubId, club_name: row.clubName, position: row.position })),
+    };
+  });
+  res.json(history);
+});
+
 leaguesRouter.post('/leagues/:id/simulate/next', async (req, res) => {
   const leagueId = parseId(req.params.id);
   const parsed = simulateNextSchema.safeParse(req.body ?? {});
@@ -185,6 +248,8 @@ leaguesRouter.post('/leagues/:id/simulate/next', async (req, res) => {
     : undefined;
   const result = await withTransaction(async (client) => {
     await lockLeague(client, leagueId);
+    const activeMatchday = await client.query('SELECT 1 FROM matches WHERE league_id = $1 AND status = \'live\' LIMIT 1', [leagueId]);
+    if (activeMatchday.rowCount) throw new ApiError('The current matchday is live.', 409);
     if (managerChoices) {
       const club = await client.query(
         'SELECT 1 FROM clubs WHERE id = $1 AND league_id = $2',
@@ -205,6 +270,8 @@ leaguesRouter.post('/leagues/:id/simulate/all', async (req, res) => {
   const leagueId = parseId(req.params.id);
   const result = await withTransaction(async (client) => {
     await lockLeague(client, leagueId);
+    const activeMatchday = await client.query('SELECT 1 FROM matches WHERE league_id = $1 AND status = \'live\' LIMIT 1', [leagueId]);
+    if (activeMatchday.rowCount) throw new ApiError('Finish the live matchday before simulating the season.', 409);
     let matchdaysPlayed = 0;
     let matchesPlayed = 0;
     let matchday = await findNextMatchday(client, leagueId);
@@ -216,6 +283,57 @@ leaguesRouter.post('/leagues/:id/simulate/all', async (req, res) => {
     return { matchdaysPlayed, matchesPlayed };
   });
   res.json(result);
+});
+
+leaguesRouter.post('/leagues/:id/matchdays/:matchday/kickoff', async (req, res) => {
+  const leagueId = parseId(req.params.id);
+  const matchday = readMatchday(req.params.matchday);
+  if (matchday === undefined) throw new ApiError('Matchday must be a positive integer', 400);
+  const parsed = kickoffSchema.safeParse(req.body ?? {});
+  if (!parsed.success) throw new ApiError(parsed.error.issues[0]?.message ?? 'Invalid kick-off request', 400);
+  const managerChoices = parsed.data.managerClubId !== undefined && parsed.data.tactics !== undefined
+    ? { clubId: parsed.data.managerClubId, tactics: parsed.data.tactics }
+    : undefined;
+  const result = await withTransaction(async (client) => {
+    await lockLeague(client, leagueId);
+    const liveRound = await client.query('SELECT 1 FROM matches WHERE league_id = $1 AND status = \'live\' LIMIT 1', [leagueId]);
+    if (liveRound.rowCount) throw new ApiError('Finish the live matchday before starting another.', 409);
+    if (managerChoices) {
+      const club = await client.query(
+        'SELECT 1 FROM clubs WHERE id = $1 AND league_id = $2',
+        [managerChoices.clubId, leagueId],
+      );
+      if (!club.rowCount) throw new ApiError('Manager club not found in this league', 400);
+    }
+    const scheduled = await client.query(
+      `SELECT COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE status = 'scheduled' AND home_goals IS NULL)::int AS pending
+       FROM matches WHERE league_id = $1 AND matchday = $2`,
+      [leagueId, matchday],
+    );
+    const fixtureCount = scheduled.rows[0]?.total ?? 0;
+    if (fixtureCount === 0) throw new ApiError('Matchday not found', 404);
+    if (scheduled.rows[0].pending !== fixtureCount) throw new ApiError('This matchday is already underway or complete.', 409);
+
+    if (parsed.data.speed === 'instant') {
+      const simulation = await simulateMatchday(client, leagueId, matchday, managerChoices);
+      return { matchday, matchesFinished: simulation.matchesPlayed, status: 'finished' };
+    }
+    const kickoffAt = new Date();
+    const simulation = await simulateMatchday(client, leagueId, matchday, managerChoices, {
+      live: true,
+      kickoffAt,
+      durationSeconds: liveDurationSeconds(parsed.data.speed),
+    });
+    return {
+      matchday,
+      matchesStarted: simulation.matchesPlayed,
+      kickoffAt: kickoffAt.toISOString(),
+      durationSeconds: liveDurationSeconds(parsed.data.speed),
+      status: 'live',
+    };
+  });
+  res.status(202).json(result);
 });
 
 leaguesRouter.post('/leagues/:id/reset', async (req, res) => {
@@ -230,12 +348,27 @@ leaguesRouter.post('/leagues/:id/reset', async (req, res) => {
     }
     await client.query(
       `UPDATE matches SET home_goals = NULL, away_goals = NULL, home_xg = NULL,
-         away_xg = NULL, played_at = NULL, status = 'scheduled', kickoff_at = NULL
+         away_xg = NULL, played_at = NULL, status = 'scheduled', kickoff_at = NULL,
+         simulation_result = NULL
        WHERE league_id = $1`,
       [leagueId],
     );
   });
   res.json({ status: 'reset' });
+});
+
+leaguesRouter.post('/leagues/:id/live/skip', async (req, res) => {
+  const leagueId = parseId(req.params.id);
+  const finished = await withTransaction(async (client) => {
+    await lockLeague(client, leagueId);
+    await client.query(
+      `UPDATE matches SET kickoff_at = NOW() - make_interval(secs => duration_seconds + $1)
+       WHERE league_id = $2 AND status = 'live'`,
+      [HALF_TIME_PAUSE_SECONDS, leagueId],
+    );
+    return finalizeElapsedMatches(client);
+  });
+  res.json({ status: 'finished', matchesFinished: finished });
 });
 
 const playerStatsHandler = async (req: Request<{ id: string }>, res: Response) => {
@@ -246,10 +379,11 @@ const playerStatsHandler = async (req: Request<{ id: string }>, res: Response) =
     `WITH event_people AS (
        SELECT e.player_id, e.type, m.league_id, m.matchday
        FROM match_events e JOIN matches m ON m.id = e.match_id
+       WHERE m.status = 'finished'
        UNION ALL
        SELECT e.secondary_player_id AS player_id, 'assist' AS type, m.league_id, m.matchday
        FROM match_events e JOIN matches m ON m.id = e.match_id
-       WHERE e.type = 'goal' AND e.secondary_player_id IS NOT NULL
+       WHERE m.status = 'finished' AND e.type = 'goal' AND e.secondary_player_id IS NOT NULL
      ), event_totals AS (
        SELECT player_id,
          COUNT(*) FILTER (WHERE type = 'goal')::int AS goals,
@@ -271,7 +405,8 @@ const playerStatsHandler = async (req: Request<{ id: string }>, res: Response) =
          SUM(pms.tackles)::int AS tackles
        FROM player_match_stats pms
        JOIN matches m ON m.id = pms.match_id
-       WHERE m.league_id = $1 AND ($2::int IS NULL OR m.matchday <= $2)
+       WHERE m.league_id = $1 AND m.status = 'finished'
+         AND ($2::int IS NULL OR m.matchday <= $2)
        GROUP BY pms.player_id
      ), totals AS (
        SELECT p.id AS player_id, p.club_id,
