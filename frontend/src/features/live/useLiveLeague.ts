@@ -29,6 +29,7 @@ export function useLiveLeague(leagueId: string) {
     let fallback = false;
     let refreshInFlight = false;
     const eventCursors = new Map<string, number>();
+    const knownLiveMatches = new Map<string, Match>();
 
     const refresh = async () => {
       if (refreshInFlight || disposed) return;
@@ -36,11 +37,14 @@ export function useLiveLeague(leagueId: string) {
       try {
         const snapshot = await api.live(leagueId);
         if (disposed) return;
-        const updates = await Promise.all(snapshot.matches.map(async match => {
+        snapshot.matches.forEach(match => knownLiveMatches.set(String(match.id), match));
+        const matchesToCatchUp = snapshot.matches.length ? snapshot.matches : [...knownLiveMatches.values()];
+        const updates = await Promise.all(matchesToCatchUp.map(async match => {
           const key = String(match.id);
           const cursor = eventCursors.get(key);
           const update = await api.matchLive(match.id, cursor ?? 0);
           eventCursors.set(key, Math.max(cursor ?? 0, ...update.events.map(event => event.seq)));
+          if (update.status === 'finished') knownLiveMatches.delete(key);
           return cursor === undefined ? [] : update.events.map(event => ({
             matchId: match.id, homeName: match.home_club_name, awayName: match.away_club_name, event,
           }));
