@@ -322,6 +322,7 @@ leaguesRouter.post('/leagues/:id/matchdays/:matchday/kickoff', async (req, res) 
     const kickoffAt = new Date();
     const simulation = await simulateMatchday(client, leagueId, matchday, managerChoices, {
       live: true,
+      managerOnlyLive: Boolean(managerChoices),
       kickoffAt,
       durationSeconds: liveDurationSeconds(parsed.data.speed),
     });
