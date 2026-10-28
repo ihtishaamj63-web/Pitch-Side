@@ -27,6 +27,7 @@ function AppContent() {
   const [managerClubId, setManagerClubId] = useState<number | null>(() => leagueId ? readManagerSelection(leagueId).clubId : null);
   const liveState = useLiveLeague(leagueId ?? '');
   const [notices, setNotices] = useState<LiveNotice[]>([]);
+  const [toast, setToast] = useState<LiveNotice | null>(null);
   const [notificationPreference, setNotificationPreference] = useState<NotificationPreference>('all');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const seenNotifications = useRef(new Set<string>());
@@ -62,14 +63,27 @@ function AppContent() {
           : event.type === 'yellow' ? `Yellow card — ${event.player_name ?? 'Player'} (${item.homeName} v ${item.awayName})`
             : event.type === 'half_time' ? `Half-time — ${item.homeName} v ${item.awayName}`
               : `Full-time — ${item.homeName} v ${item.awayName}`;
-      created.push({ id, text: moment, createdAt: new Date().toISOString(), read: false });
+      const notificationText = event.type === 'goal' && followedMatch
+        ? `${moment} - ${followedMatch.home_goals ?? 0}-${followedMatch.away_goals ?? 0}`
+        : moment;
+      created.push({ id, text: notificationText, createdAt: new Date().toISOString(), read: false });
     }
-    if (created.length) queueMicrotask(() => setNotices(current => {
-      const updated = [...created.reverse(), ...current].slice(0, 30);
-      try { localStorage.setItem(`pitch:live-notices:${leagueId}`, JSON.stringify(updated)); } catch { /* Keep live alerts if storage is unavailable. */ }
-      return updated;
-    }));
+    if (created.length) {
+      const latest = created[created.length - 1] ?? null;
+      queueMicrotask(() => setToast(latest));
+      queueMicrotask(() => setNotices(current => {
+        const updated = [...created.reverse(), ...current].slice(0, 30);
+        try { localStorage.setItem(`pitch:live-notices:${leagueId}`, JSON.stringify(updated)); } catch { /* Keep live alerts if storage is unavailable. */ }
+        return updated;
+      }));
+    }
   }, [leagueId, liveState.recentEvents, liveState.matches, managerClubId, notificationPreference]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     if (!leagueId) return;
@@ -106,6 +120,7 @@ function AppContent() {
           </Routes>
           </AnimatePresence>
         </main>
+        {toast && <div className="live-toast" role="status" aria-live="polite"><span>{toast.text}</span><button type="button" aria-label="Dismiss match alert" onClick={() => setToast(null)}>Dismiss</button></div>}
         <footer className="footer"><span>Built by {footerUrl ? <a href={footerUrl} target="_blank" rel="noreferrer">Ihtishaam</a> : 'Ihtishaam'}</span></footer>
       </div>
   );
