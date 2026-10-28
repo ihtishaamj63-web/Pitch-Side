@@ -1081,3 +1081,34 @@ h1, h2, h3, p { margin-top: 0; }
   #root .match-event { grid-template-columns: 39px 20px minmax(0,1fr); gap: 7px; font-size: 12px; }
   #root .match-report-link { align-items: flex-start; flex-direction: column; }
 }
+
+
+/* Responsive guardrails for the dense league and matchday controls. */
+@media (max-width: 900px) {
+  #root .league-toolbar { align-items: stretch; flex-direction: column; gap: 10px; padding-bottom: 10px; }
+  #root .simulation-actions { flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; }
+  #root .simulation-actions .button { min-width: 0; }
+  #root .live-speed-control { flex: 1 1 140px; }
+  #root .content-heading { align-items: flex-start; flex-wrap: wrap; }
+  #root .content-heading > p { max-width: 100%; text-align: left; }
+  #root .match-card { grid-template-columns: 48px minmax(0, 1fr) 58px minmax(0, 1fr); gap: 7px; padding: 9px; }
+  #root .match-team { gap: 5px; }
+  #root .match-team strong { overflow-wrap: anywhere; white-space: normal; }
+}
+@media (max-width: 600px) {
+  #root .league-masthead { padding: 16px; }
+  #root .masthead-meta { flex-wrap: wrap; gap: 8px 12px; }
+  #root .league-title-row { align-items: flex-start; gap: 12px; }
+  #root .season-progress-ring { width: 54px; height: 54px; }
+  #root .matchday-stepper { width: 100%; flex-wrap: wrap; }
+  #root .matchday-select { flex: 1 1 100px; }
+  #root .matchday-select select { min-width: 0; }
+  #root .match-card { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 7px; }
+  #root .match-kickoff { grid-column: 1 / -1; text-align: left; }
+  #root .match-team--right { justify-content: flex-end; }
+  #root .match-team .crest { width: 22px; height: 23px; }
+  #root .match-score { font-size: 20px; }
+  #root .form-grid, #root .club-preview, #root .club-editor-fields { grid-template-columns: minmax(0, 1fr); }
+  #root .live-hub-tools { flex-wrap: wrap; }
+  #root .match-report-link p { flex: initial; }
+}
