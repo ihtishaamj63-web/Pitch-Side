@@ -1,4 +1,4 @@
-.app-shell { min-height: 100vh; overflow-x: clip; background: linear-gradient(180deg, rgba(7, 13, 18, .91), rgba(7, 13, 18, .97)), url('/matchday/dark-grass.jpg') center top / cover fixed; color: var(--text); }
+.app-shell { min-height: 100vh; overflow-x: clip; background: linear-gradient(180deg, rgba(7, 13, 18, .72), rgba(7, 13, 18, .84)), url('/matchday/dark-grass.jpg') center top / cover fixed; color: var(--text); }
 .app-shell img { max-width: 100%; }
 .main-content, .topbar, .footer { min-width: 0; }
 .main-content { overflow-wrap: anywhere; }
