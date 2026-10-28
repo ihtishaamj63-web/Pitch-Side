@@ -10,6 +10,7 @@ const palette = [['#f06d55', '#f7cb72'], ['#58c6b2', '#d3f078'], ['#8378ea', '#f
 
 function inventClubs(count: number): Array<Omit<Club, 'id'> & { attack: number; defence: number }> {
   const used = new Set<string>();
+  const usedCodes = new Set<string>();
   const clubs: Array<Omit<Club, 'id'> & { attack: number; defence: number }> = [];
   while (clubs.length < count) {
     const first = nameFirst[Math.floor(Math.random() * nameFirst.length)] ?? 'Aster';
@@ -18,14 +19,31 @@ function inventClubs(count: number): Array<Omit<Club, 'id'> & { attack: number; 
     if (used.has(name)) continue;
     used.add(name);
     const colors = palette[clubs.length % palette.length] ?? ['#f06d55', '#f7cb72'];
-    clubs.push({ name, short_name: shortCode(clubs.length), colour_primary: colors[0], colour_secondary: colors[1], attack: 45 + Math.floor(Math.random() * 46), defence: 45 + Math.floor(Math.random() * 46) });
+    const code = shortCode(name, usedCodes);
+    usedCodes.add(code);
+    clubs.push({ name, short_name: code, colour_primary: colors[0], colour_secondary: colors[1], attack: 45 + Math.floor(Math.random() * 46), defence: 45 + Math.floor(Math.random() * 46) });
   }
   return clubs;
 }
 
-function shortCode(index: number) {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  return `${alphabet[Math.floor(index / 676) % 26]}${alphabet[Math.floor(index / 26) % 26]}${alphabet[index % 26]}`;
+function shortCode(name: string, used: Set<string>) {
+  const words = name.toLocaleUpperCase().replace(/[^A-Z ]/g, '').split(/\s+/).filter(Boolean);
+  const first = words[0] ?? 'CLUB';
+  const second = words[1] ?? first;
+  const candidates = [
+    `${first[0]}${second.slice(0, 2)}`,
+    `${first.slice(0, 2)}${second[0]}`,
+    `${first[0]}${second[0]}${second[1] ?? first[1]}`,
+    `${first.slice(0, 3)}`,
+  ];
+  const candidate = candidates.find(code => code.length === 3 && !used.has(code));
+  if (candidate) return candidate;
+  const letters = `${first}${second}`;
+  for (let offset = 0; offset < letters.length; offset += 1) {
+    const code = `${letters[offset]}${letters[(offset + 3) % letters.length]}${letters[(offset + 6) % letters.length]}`;
+    if (/^[A-Z]{3}$/.test(code) && !used.has(code)) return code;
+  }
+  throw new Error('Could not make a unique club code.');
 }
 
 export function CreateLeague() {
@@ -39,6 +57,30 @@ export function CreateLeague() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const regenerate = (count: number) => { setClubCount(count); setClubs(inventClubs(count)); setTopZone(Math.min(topZone, Math.floor(count / 2))); setBottomZone(Math.min(bottomZone, Math.floor(count / 2))); };
+  const editClub = (index: number, changes: Partial<typeof clubs[number]>) => setClubs(current => current.map((club, clubIndex) => {
+    if (clubIndex !== index) return club;
+    const updated = { ...club, ...changes };
+    if (changes.name !== undefined) {
+      const used = new Set(current.filter((_, i) => i !== index).map(item => item.short_name));
+      updated.short_name = shortCode(updated.name, used);
+    }
+    return updated;
+  }));
+  const applyPreset = (preset: 'balanced' | 'super' | 'relegation') => setClubs(current => current.map((club, index) => ({
+    ...club,
+    attack: preset === 'balanced' ? 60 : preset === 'super' ? (index === 0 ? 96 : 45) : (index >= current.length - 3 ? 43 : 65),
+    defence: preset === 'balanced' ? 60 : preset === 'super' ? (index === 0 ? 94 : 47) : (index >= current.length - 3 ? 45 : 64),
+  })));
+  const rerollClub = (index: number) => {
+    const replacement = inventClubs(1)[0];
+    if (!replacement) return;
+    const existingNames = new Set(clubs.filter((_, i) => i !== index).map(club => club.name));
+    const existingCodes = new Set(clubs.filter((_, i) => i !== index).map(club => club.short_name));
+    let candidate = replacement;
+    while (existingNames.has(candidate.name)) candidate = inventClubs(1)[0] ?? candidate;
+    candidate.short_name = shortCode(candidate.name, existingCodes);
+    editClub(index, candidate);
+  };
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true); setError('');
@@ -59,7 +101,15 @@ export function CreateLeague() {
       </div>
       <div className="form-section"><div className="form-section-title"><span>02</span><div><h2>Set the stage</h2><p>Choose your field of contenders.</p></div></div>
         <label>NUMBER OF CLUBS<select value={clubCount} onChange={e => regenerate(Number(e.target.value))}>{Array.from({ length: 17 }, (_, i) => i + 4).map(count => <option value={count} key={count}>{count} clubs</option>)}</select></label>
-        <div className="club-preview">{clubs.map((club, i) => <div className="preview-club" key={`${club.name}-${i}`}><ClubCrest club={{ ...club, id: `preview-${i}` }} size="small" /><span>{club.name}</span></div>)}</div>
+        <div className="club-presets" aria-label="Club strength presets"><button type="button" onClick={() => applyPreset('balanced')}>Balanced</button><button type="button" onClick={() => applyPreset('super')}>One super club</button><button type="button" onClick={() => applyPreset('relegation')}>Relegation battle</button></div>
+        <div className="club-preview">{clubs.map((club, i) => <details className="preview-club-editor" key={`${club.name}-${i}`}><summary><ClubCrest club={{ ...club, id: `preview-${i}` }} size="small" /><span>{club.name}</span><small>{club.short_name}</small></summary><div className="club-editor-fields">
+          <label>Club name<input value={club.name} maxLength={100} onChange={event => editClub(i, { name: event.target.value })} /></label>
+          <label>Primary kit<input type="color" value={club.colour_primary} onChange={event => editClub(i, { colour_primary: event.target.value })} /></label>
+          <label>Trim<input type="color" value={club.colour_secondary} onChange={event => editClub(i, { colour_secondary: event.target.value })} /></label>
+          <label>Attack {club.attack}<input type="range" min="1" max="100" value={club.attack} onChange={event => editClub(i, { attack: Number(event.target.value) })} /></label>
+          <label>Defence {club.defence}<input type="range" min="1" max="100" value={club.defence} onChange={event => editClub(i, { defence: Number(event.target.value) })} /></label>
+          <button type="button" onClick={() => rerollClub(i)}>Reroll this club</button>
+        </div></details>)}</div>
         <button type="button" className="button button-quiet shuffle-button" onClick={() => setClubs(inventClubs(clubCount))}><span>⟳</span> Shuffle the clubs</button>
       </div>
       <div className="form-section"><div className="form-section-title"><span>03</span><div><h2>Season rules</h2><p>Classic three points for a win. Shape the table zones.</p></div></div>

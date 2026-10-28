@@ -210,6 +210,33 @@ leaguesRouter.get('/leagues/:id/table', async (req, res) => {
   res.json(await tableForLeague(league, upToMatchday));
 });
 
+leaguesRouter.get('/leagues/:id/table/history', async (req, res) => {
+  const id = parseId(req.params.id);
+  const league = await requireLeague(id);
+  const [clubsResult, matchesResult] = await Promise.all([
+    pool.query('SELECT id, name, attack, defence FROM clubs WHERE league_id = $1 ORDER BY id', [id]),
+    pool.query(
+      `SELECT matchday, home_club_id, away_club_id, home_goals, away_goals
+       FROM matches WHERE league_id = $1 AND status = 'finished' ORDER BY matchday, id`, [id],
+    ),
+  ]);
+  const clubs = clubsResult.rows.map((club) => ({ id: club.id, name: club.name, attack: club.attack, defence: club.defence }));
+  const matchdays = Math.max(0, ...matchesResult.rows.map((match) => match.matchday));
+  const history = Array.from({ length: matchdays }, (_, index) => {
+    const matchday = index + 1;
+    const completed = matchesResult.rows.filter((match) => match.matchday <= matchday).map((match) => ({
+      matchday: match.matchday, homeClubId: match.home_club_id, awayClubId: match.away_club_id,
+      homeGoals: match.home_goals, awayGoals: match.away_goals,
+    }));
+    return {
+      matchday,
+      positions: computeTable(clubs, completed, { pointsWin: league.points_win, pointsDraw: league.points_draw })
+        .map((row) => ({ club_id: row.clubId, club_name: row.clubName, position: row.position })),
+    };
+  });
+  res.json(history);
+});
+
 leaguesRouter.post('/leagues/:id/simulate/next', async (req, res) => {
   const leagueId = parseId(req.params.id);
   const parsed = simulateNextSchema.safeParse(req.body ?? {});
