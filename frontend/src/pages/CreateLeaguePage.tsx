@@ -68,11 +68,6 @@ export function CreateLeague() {
     }
     return updated;
   }));
-  const applyPreset = (preset: 'balanced' | 'super' | 'relegation') => setClubs(current => current.map((club, index) => ({
-    ...club,
-    attack: preset === 'balanced' ? 60 : preset === 'super' ? (index === 0 ? 96 : 45) : (index >= current.length - 3 ? 43 : 65),
-    defence: preset === 'balanced' ? 60 : preset === 'super' ? (index === 0 ? 94 : 47) : (index >= current.length - 3 ? 45 : 64),
-  })));
   const rerollClub = (index: number) => {
     const replacement = inventClubs(1)[0];
     if (!replacement) return;
@@ -103,7 +98,6 @@ export function CreateLeague() {
       </div>
       <div className="form-section"><div className="form-section-title"><span>02</span><div><h2>Set the stage</h2><p>Choose your field of contenders.</p></div></div>
         <label>NUMBER OF CLUBS<select value={clubCount} onChange={e => regenerate(Number(e.target.value))}>{Array.from({ length: 17 }, (_, i) => i + 4).map(count => <option value={count} key={count}>{count} clubs</option>)}</select></label>
-        <div className="club-presets" aria-label="Club strength presets"><button type="button" onClick={() => applyPreset('balanced')}>Balanced</button><button type="button" onClick={() => applyPreset('super')}>One super club</button><button type="button" onClick={() => applyPreset('relegation')}>Relegation battle</button></div>
         <div className="club-preview">{clubs.map((club, i) => <details className="preview-club-editor" key={`${club.name}-${i}`}><summary><ClubCrest club={{ ...club, id: `preview-${i}` }} size="small" /><span>{club.name}</span><small>{club.short_name}</small></summary><div className="club-editor-fields">
           <label>Club name<input value={club.name} maxLength={100} onChange={event => editClub(i, { name: event.target.value })} /></label>
           <label>Primary kit<input type="color" value={club.colour_primary} onChange={event => editClub(i, { colour_primary: event.target.value })} /></label>
@@ -112,10 +106,6 @@ export function CreateLeague() {
           <label>Defence {club.defence}<input type="range" min="1" max="100" value={club.defence} onChange={event => editClub(i, { defence: Number(event.target.value) })} /></label>
           <button type="button" onClick={() => rerollClub(i)}>Reroll this club</button>
         </div></details>)}</div>
-        <button type="button" className="button button-quiet shuffle-button" onClick={() => setClubs(inventClubs(clubCount))}><span>⟳</span> Shuffle the clubs</button>
-      </div>
-      <div className="form-section"><div className="form-section-title"><span>03</span><div><h2>Season rules</h2><p>Classic three points for a win. Shape the table zones.</p></div></div>
-        <div className="form-grid"><label>TOP ZONE<select value={topZone} onChange={e => setTopZone(Number(e.target.value))}>{Array.from({ length: Math.floor(clubCount / 2) }, (_, i) => i + 1).map(v => <option value={v} key={v}>{v} clubs</option>)}</select></label><label>BOTTOM ZONE<select value={bottomZone} onChange={e => setBottomZone(Number(e.target.value))}>{Array.from({ length: Math.floor(clubCount / 2) }, (_, i) => i + 1).map(v => <option value={v} key={v}>{v} clubs</option>)}</select></label></div>
       </div>
       {error && <ErrorNotice message={error} />}
       <button className="button button-primary submit-button" type="submit" disabled={busy}>{busy ? 'Creating your league…' : 'Kick off the season'}</button>

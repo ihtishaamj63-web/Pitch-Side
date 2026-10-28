@@ -29,7 +29,6 @@ function AppContent() {
   const [notices, setNotices] = useState<LiveNotice[]>([]);
   const [toast, setToast] = useState<LiveNotice | null>(null);
   const [notificationPreference, setNotificationPreference] = useState<NotificationPreference>('all');
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const seenNotifications = useRef(new Set<string>());
 
   useEffect(() => {
@@ -99,12 +98,7 @@ function AppContent() {
       <div className="app-shell">
         <header className="topbar">
           <Link className="brand" to="/" aria-label="Pitch home"><span className="brand-mark">P</span><span>PITCH</span></Link>
-          <LiveBar leagueId={leagueId} managerClubId={managerClubId} liveState={liveState} notices={notices} open={notificationsOpen}
-            onToggle={() => { const next = !notificationsOpen; setNotificationsOpen(next); if (next) setNotices(current => current.map(notice => ({ ...notice, read: true }))); }}
-            preference={notificationPreference} onPreference={value => {
-              setNotificationPreference(value);
-              if (leagueId) localStorage.setItem(`pitch:live-preference:${leagueId}`, value);
-            }} />
+          <LiveBar leagueId={leagueId} managerClubId={managerClubId} liveState={liveState} />
         </header>
         <main className="main-content">
           <AnimatePresence mode="wait" initial={false}>
@@ -126,24 +120,14 @@ function AppContent() {
   );
 }
 
-function LiveBar({ leagueId, managerClubId, liveState, notices, open, onToggle, preference, onPreference }: {
-  leagueId?: string; managerClubId: number | null; liveState: LiveLeagueState; notices: LiveNotice[]; open: boolean;
-  onToggle: () => void; preference: NotificationPreference; onPreference: (preference: NotificationPreference) => void;
-}) {
+function LiveBar({ leagueId, managerClubId, liveState }: { leagueId?: string; managerClubId: number | null; liveState: LiveLeagueState }) {
   if (!leagueId) return null;
   const followed = liveState.matches.find(match => managerClubId !== null && [match.home_club_id, match.away_club_id].some(id => Number(id) === managerClubId)) ?? liveState.matches[0];
-  const unread = notices.filter(notice => !notice.read).length;
   return <div className="topbar-live-tools">
     {liveState.matches.length > 0 && <Link className="topbar-live-link" to={`/leagues/${leagueId}/live`} aria-label={`Live matchday ${liveState.matchday}`}>
       <span className="topbar-live-dot" />LIVE
       {followed && <strong>{followed.home_short_name} {followed.home_goals ?? 0}–{followed.away_goals ?? 0} {followed.away_short_name} <small>{followed.minute ?? 0}{followed.minute_extra ? `+${followed.minute_extra}` : ''}&apos;</small></strong>}
     </Link>}
-    <button className="notification-bell" type="button" aria-label={`Notifications, ${unread} unread`} aria-expanded={open} onClick={onToggle}>♢{unread > 0 && <span>{unread}</span>}</button>
-    {open && <section className="notification-panel" aria-label="Round notifications">
-      <header><strong>Match alerts</strong><label>Alerts <select value={preference} onChange={event => onPreference(event.target.value as NotificationPreference)}><option value="all">All matches</option><option value="followed">Followed team</option><option value="goals">Goals only</option></select></label></header>
-      <div className="notification-list" aria-live="polite">{notices.length ? notices.map(notice => <p key={notice.id} className={notice.read ? '' : 'is-unread'}>{notice.text}</p>) : <p>No match events yet.</p>}</div>
-      {liveState.matches.length > 0 && <Link to={`/leagues/${leagueId}/live`} onClick={onToggle}>Open live hub</Link>}
-    </section>}
   </div>;
 }
 function NotFound() { return <PageMotion className="empty-state"><h2>That page isn't in this fixture.</h2><Link to="/" className="button button-secondary">Back to leagues</Link></PageMotion>; }

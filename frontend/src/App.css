@@ -55,8 +55,8 @@ h1, h2, h3, p { margin-top: 0; }
 .league-card:hover { border-color: rgba(200, 242, 105, .55); transform: translateY(-3px); }
 .league-card-link { display: block; }
 .league-card-actions { display: flex; justify-content: flex-end; padding: 3px 4px 0; border-top: 1px solid rgba(146, 171, 196, .1); }
-.league-delete-button { border: 0; padding: 6px 8px; background: transparent; color: #a6b0bd; cursor: pointer; font-size: 12px; transition: color .18s; }
-.league-delete-button:hover:not(:disabled) { color: #ff7b82; }
+.league-delete-button { border: 1px solid #ef4444; padding: 6px 10px; background: #ef4444; color: #fff; cursor: pointer; font-size: 12px; font-weight: 700; border-radius: 4px; transition: background .18s, border-color .18s; }
+.league-delete-button:hover:not(:disabled) { background: #dc2626; border-color: #dc2626; }
 .league-delete-button:disabled { cursor: wait; opacity: .6; }
 .league-card-art { height: 115px; position: relative; overflow: hidden; padding: 13px; background: linear-gradient(130deg, #1e3a4a, #121c30 70%); }
 .league-card-art--1 { background: linear-gradient(130deg, #3b2a41, #172031 70%); }
@@ -253,7 +253,7 @@ h1, h2, h3, p { margin-top: 0; }
 .award-pitch-player { display: grid; justify-items: center; gap: 3px; width: min(23%, 116px); color: #fff; text-align: center; text-decoration: none; text-shadow: 0 1px 3px #183525; }
 .award-pitch-player > span { display: grid; place-items: center; width: 35px; height: 35px; border: 2px solid rgba(255, 255, 255, .85); border-radius: 50%; background: #e9f0e4; color: #21452f; font-size: 11px; font-weight: 800; text-shadow: none; }
 .award-pitch-player strong, .award-pitch-player small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.award-pitch-player strong { font-size: 10px; }
+.award-pitch-player strong { font-size: 10px; color: #fde68a; font-weight: 800; }
 .award-pitch-player small { font-size: 8px; }
 .award-pitch-player:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .player-profile { display: flex; align-items: center; gap: 20px; padding: 24px; border-left: 5px solid var(--lime); background: var(--panel); }

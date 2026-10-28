@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { api, readableError, type LiveSpeed } from '../api';
+import { api, readableError } from '../api';
 import { ClubCrest } from '../Crest';
 import { BackLink, ErrorNotice, Loading, PageMotion } from '../components/common';
 import { clearManagerClubId, isTactics, readManagerSelection, saveManagerClubId, saveManagerTactics } from '../features/manager/storage';
@@ -33,7 +33,6 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
   const [pendingManagerClubId, setPendingManagerClubId] = useState<number | null>(null);
   const [managerTactics, setManagerTactics] = useState<Tactics>(savedManager.tactics);
   const [simulationBusy, setSimulationBusy] = useState(false);
-  const [liveSpeed, setLiveSpeed] = useState<LiveSpeed>('quick');
   const wasLive = useRef(false);
 
   useEffect(() => {
@@ -70,10 +69,13 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
       if (action === 'reset') {
         await api.resetLeague(leagueId);
         setSearchParams({ matchday: '1' }, { replace: true });
+        window.location.reload();
+        return;
       } else if (action === 'next') {
         const nextMatchday = Math.min(totalMatchdays, Math.floor(playedMatches / Math.max(1, (detail?.clubs.length ?? 2) / 2)) + 1);
-        const result = await api.kickoffMatchday(leagueId, nextMatchday, liveSpeed, managerClubId === null ? undefined : { clubId: managerClubId, tactics: managerTactics });
+        const result = await api.kickoffMatchday(leagueId, nextMatchday, 'quick', managerClubId === null ? undefined : { clubId: managerClubId, tactics: managerTactics });
         setSearchParams({ matchday: String(result.matchday) }, { replace: true });
+        if (managerClubId !== null) window.location.href = `/leagues/${leagueId}/match-centre?matchday=${result.matchday}`;
       } else {
         await api.simulate(leagueId, action);
         if (action === 'all') {
@@ -129,11 +131,6 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
       {tabs.map(([id, label]) => <Link key={id} to={`/leagues/${leagueId}/${id}?matchday=${selectedMatchday}`} className={`league-tab${currentTab === id ? ' is-active' : ''}`}>{label}</Link>)}
     </nav>
     <div className="simulation-actions">
-      {!seasonComplete && !liveState.matches.length && <label className="live-speed-control">SPEED
-        <select value={liveSpeed} onChange={event => setLiveSpeed(event.target.value as LiveSpeed)} aria-label="Live match speed">
-          <option value="quick">Fast · 90 sec</option><option value="standard">Standard · 15 min</option><option value="extended">Extended · 60 min</option>
-        </select>
-      </label>}
       {seasonComplete
         ? <Link className="button button-secondary button-small" to={`/leagues/${leagueId}/awards?matchday=${totalMatchdays}`}>End season <span aria-hidden="true">🏆</span></Link>
         : <button className="button button-secondary button-small" disabled={simulationBusy || liveState.matches.length > 0} onClick={() => void runSimulation('next')}>{simulationBusy ? 'Starting…' : liveState.matches.length ? 'Matchday live' : 'Kick off matchday'}</button>}
@@ -141,7 +138,7 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
       <button className="button button-quiet button-small" disabled={simulationBusy} onClick={() => void runSimulation('reset')}>Reset</button>
       {managerClubId === null && <button className="button button-quiet button-small" onClick={() => { setPendingManagerClubId(null); setManagerPickerOpen(true); }}>Choose your team</button>}
     </div></div>
-    {managerClubId !== null && managedClub && <section className="manager-panel" aria-label="Manager controls">
+    {currentTab === 'table' && managerClubId !== null && managedClub && <section className="manager-panel" aria-label="Manager controls">
       <div className="manager-team">
         <ClubCrest club={managedClub} size="small" />
         <div><div className="eyebrow">YOUR TEAM</div><strong>{managedClub.name}</strong><small>Attack {managedClub.attack} · Defence {managedClub.defence}</small></div>

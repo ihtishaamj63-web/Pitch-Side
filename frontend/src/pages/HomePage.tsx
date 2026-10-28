@@ -14,7 +14,8 @@ export function LeagueHome() {
     setError('');
     try {
       await api.deleteLeague(league.id);
-      setLeagues(current => (current ?? []).filter(item => String(item.id) !== String(league.id)));
+      setLeagues(current => (Array.isArray(current) ? current : []).filter(item => String(item.id) !== String(league.id)));
+      refresh();
     } catch (err) {
       setError(readableError(err));
     } finally {
@@ -34,7 +35,7 @@ export function LeagueHome() {
         </div>
       </section>
       <section className="league-section" id="leagues">
-        <div className="section-heading"><div><h2>Leagues <span className="heading-count">{leagues.length.toString().padStart(2, '0')}</span></h2></div><Link className="text-link" to="/leagues/new">Build a new league</Link></div>
+        <div className="section-heading"><div><h2>Leagues <span className="heading-count">{leagues.length.toString().padStart(2, '0')}</span></h2></div></div>
         {error && <ErrorNotice message={error} onRetry={refresh} />}
         {loading ? <Loading label="Finding your leagues" /> : leagues.length ? (
           <div className="league-grid">

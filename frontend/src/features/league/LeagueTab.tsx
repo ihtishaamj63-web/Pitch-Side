@@ -219,10 +219,6 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
   const homeStats = match ? teamStat(match.home_club_id) : undefined;
   const awayStats = match ? teamStat(match.away_club_id) : undefined;
   const manOfTheMatch = match ? getManOfTheMatch(match.player_stats ?? []) : undefined;
-  const homeSubstitutions = match?.substitutions?.filter(substitution => String(substitution.club_id) === String(match.home_club_id)) ?? [];
-  const awaySubstitutions = match?.substitutions?.filter(substitution => String(substitution.club_id) === String(match.away_club_id)) ?? [];
-  const homePlayers = match?.player_stats?.filter(player => String(player.club_id) === String(match.home_club_id)) ?? [];
-  const awayPlayers = match?.player_stats?.filter(player => String(player.club_id) === String(match.away_club_id)) ?? [];
   const isMatchPlayed = match?.home_goals !== null && match?.home_goals !== undefined;
   return <section className="tab-panel match-centre-page"><div className="match-centre-heading"><h2>Match report</h2></div>
     {error && <ErrorNotice message={error} />}
@@ -233,10 +229,6 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
         <div><div className="eyebrow">FIXTURE PREVIEW</div><h3>Ready for kick-off</h3><p>Line-ups, match events and statistics will appear after this matchday is simulated.</p></div>
       </div> : <>
         {manOfTheMatch && <div className="report-motm"><span><strong>{manOfTheMatch.player_name} <i className="motm-badge">MOTM</i></strong></span></div>}
-        <MatchPitch
-          homeClub={clubFromMatch(match, 'home')} awayClub={clubFromMatch(match, 'away')}
-          homePlayers={homePlayers} awayPlayers={awayPlayers} homeSubs={homeSubstitutions} awaySubs={awaySubstitutions}
-        />
         <div className="timeline"><div className="timeline-column">{homeEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div></div>
         {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && !match.substitutions?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
         {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
@@ -284,9 +276,9 @@ function ScorersTab({ leagueId, matchday }: { leagueId: string; matchday: number
       </select></label>
       <span>{ranked.length} players</span>
     </div>
-    {ranked.length ? <div className="table-wrap"><table className="player-stats-table"><thead><tr><th>RANK</th><th className="align-left">PLAYER</th><th>POS</th><th className="align-left">CLUB</th><th>APPS</th><th><button type="button" className="stats-sort" onClick={() => setAscending(value => !value)} aria-label={`Sort ${metric.label} ${ascending ? 'descending' : 'ascending'}`}>{metric.label.toUpperCase()} {ascending ? '↑' : '↓'}</button></th></tr></thead>
-      <tbody>{ranked.map((player, index) => <tr key={player.player_id}><td>{index + 1}</td><td className="align-left"><Link className="stats-player-link" to={`/players/${player.player_id}`}>{player.player_name}</Link></td><td>{player.position}</td><td className="align-left"><Link to={`/clubs/${player.club_id}`}>{player.club_name}</Link></td><td>{player.appearances}</td><td><strong>{metric.format(metric.value(player))}</strong></td></tr>)}</tbody>
-    </table></div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to compare the season's players." />}
+    {ranked.length ? <div className="club-stats-groups">{[...new Set(ranked.map(player => player.club_name))].map(clubName => <section key={clubName} className="club-stats-group"><h3>{clubName}</h3><div className="table-wrap"><table className="player-stats-table"><thead><tr><th>RANK</th><th className="align-left">PLAYER</th><th>POS</th><th>APPS</th><th><button type="button" className="stats-sort" onClick={() => setAscending(value => !value)} aria-label={`Sort ${metric.label} ${ascending ? 'descending' : 'ascending'}`}>{metric.label.toUpperCase()} {ascending ? '↑' : '↓'}</button></th></tr></thead>
+      <tbody>{ranked.filter(player => player.club_name === clubName).map((player, index) => <tr key={player.player_id}><td>{index + 1}</td><td className="align-left"><Link className="stats-player-link" to={`/players/${player.player_id}`}>{player.player_name}</Link></td><td>{player.position}</td><td>{player.appearances}</td><td><strong>{metric.format(metric.value(player))}</strong></td></tr>)}</tbody>
+    </table></div></section>)} </div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to compare the season's players." />}
   </section>;
 }
 function seasonPlayerScore(player: PlayerStat): number {
