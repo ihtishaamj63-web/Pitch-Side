@@ -1,4 +1,9 @@
-.app-shell { min-height: 100vh; overflow: hidden; background: #e9f0e2; }
+.app-shell { min-height: 100vh; overflow-x: clip; background: linear-gradient(180deg, rgba(7, 13, 18, .91), rgba(7, 13, 18, .97)), url('/matchday/dark-grass.jpg') center top / cover fixed; color: var(--text); }
+.app-shell img { max-width: 100%; }
+.main-content, .topbar, .footer { min-width: 0; }
+.main-content { overflow-wrap: anywhere; }
+button, a, input, select { max-width: 100%; }
+@media (max-width: 640px) { .main-content { width: min(100% - 32px, 1120px); padding-bottom: 48px; } .topbar { padding-inline: 16px; gap: 12px; } .footer { padding-inline: 16px; } .league-grid { grid-template-columns: minmax(0, 1fr); } .hero { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 30px; } .hero h1, .page-title, .league-title-row h1, .club-profile-info h1 { font-size: clamp(48px, 13vw, 72px); } .section-heading, .content-heading { align-items: flex-start; flex-wrap: wrap; gap: 12px; } }
 .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 0 max(calc((100vw - 1220px) / 2), 5.5vw); border-bottom: 1px solid rgba(166, 187, 207, .12); }
 .brand { display: flex; align-items: center; gap: 11px; color: var(--white); font-size: 14px; font-weight: 800; letter-spacing: .1em; }
 .brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--lime); color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 700; transform: skew(-8deg); }
