@@ -12,7 +12,7 @@ async function start() {
     console.log(`Applied database migrations: ${appliedMigrations.join(', ')}`);
   }
 
-  if (process.env.SEED_DEMO !== 'false') {
+  if (process.env.SEED_DEMO === 'true') {
     await ensureDemoLeague();
   }
 
