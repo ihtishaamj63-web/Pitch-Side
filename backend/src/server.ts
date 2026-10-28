@@ -1,6 +1,5 @@
 import { app } from './app';
 import { pool } from './db';
-import { ensureDemoLeague } from './services/demo';
 import { applyMigrations } from './services/migrations';
 import { finalizeElapsedMatches } from './services/simulation';
 import { withTransaction } from './services/transaction';
@@ -12,9 +11,6 @@ async function start() {
     console.log(`Applied database migrations: ${appliedMigrations.join(', ')}`);
   }
 
-  if (process.env.SEED_DEMO === 'true') {
-    await ensureDemoLeague();
-  }
 
   const port = Number(process.env.PORT ?? 4000);
   const server = app.listen(port, () => {
