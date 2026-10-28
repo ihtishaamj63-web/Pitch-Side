@@ -1,17 +1,18 @@
 # Pitch-Side
 
-# Pitch
-
-Pitch is a small football league simulator for creating competitions and following a season.
-It turns invented club ratings into fixtures, match reports, a live table, and player leaderboards.
+Pitch-Side is a fictional football league simulator. Create a league, follow every matchday live, and explore match reports, standings, player statistics, awards and club profiles.
 
 ## Try this
 
 1. Open the preloaded **Demo league**.
 2. Choose a team to manage, set its tactics and simulate the next matchday.
-3. Open **League leaders** for goals, assists, cards, fouls, xG, shots and other player stats.
+3. Open **Player statistics** to rank players by goals, assists, xG, key passes, tackles, cards or goal contributions per 90 minutes. Open a player for their season record and match log.
 
 Your managed team and tactical approach are saved per league in your browser. While managing a team, simulate one matchday at a time so your tactics are applied to each fixture.
+
+The Live hub follows every fixture in the current round. Match pages show the server clock, revealed commentary, match stats and line-ups, then become the final report. Live speed is configurable with `LIVE_SPEED_QUICK_SECONDS`, `LIVE_SPEED_STANDARD_SECONDS` and `LIVE_SPEED_EXTENDED_SECONDS`; instant simulation remains available for a full season. Notifications are stored per league in the browser and can be limited to the followed team or goals only.
+
+League routes include `/leagues/:id/table`, `/leagues/:id/fixtures`, `/leagues/:id/live`, `/leagues/:id/stats` and `/leagues/:id/awards`. Match, club and player pages live at `/matches/:id`, `/clubs/:id` and `/players/:id`.
 
 All club and player names, ratings, and crests are fictional. The project uses no real-world club, league, player, or badge data.
 
@@ -83,6 +84,11 @@ npm run build
 - **Match simulation:** seeded results include goals and assists, cards, fouls, expected goals, shots, possession, corners, saves, key passes and tackles. Supporting statistics are generated consistently for the fixture and its player leaders; they are illustrative, not a prediction or tracking-data model.
 - **Transactional matchday simulation:** the API locks the league row and writes every match and match event for a matchday in one transaction. Concurrent requests therefore cannot simulate the same matchday twice or leave a partial round.
 - **Table tie-breaks:** points, goal difference, goals scored, then club name alphabetically without case sensitivity.
+- **Live delivery:** one in-process ticker fans clock updates out to all SSE clients. Each client can poll snapshots and incremental events if streaming fails. This expects one API instance; use PostgreSQL `LISTEN/NOTIFY` or a shared event bus before horizontal scaling.
+- **Spoiler safety:** match events are stored as a deterministic full script at kick-off, but read endpoints derive the visible score and stats from the server clock and only return events whose minute has elapsed.
+- **Clock model:** elapsed real time maps to match time over the configured duration, with a short half-time pause. Restarting the API does not change the clock because kick-off time and duration are stored in PostgreSQL.
+- **Event model:** `match_events` is the source for goals, cards, fouls and substitutions. Player and team aggregate tables support reports; event history remains the source of truth for live reveal.
+- **Calibration:** seeded tests check score range, home advantage, strength response and consistency between goals, shots, xG and saves. The fictional simulator is for entertainment and is not intended to model real football precisely.
 
 ## Stack
 
