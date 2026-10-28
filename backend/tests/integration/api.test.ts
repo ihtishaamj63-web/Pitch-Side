@@ -183,9 +183,6 @@ describe('Pitch API', () => {
       home_goals: finished.rows[0].simulation_result.homeGoals,
       away_goals: finished.rows[0].simulation_result.awayGoals,
     });
-    const tableHistory = await request(app).get(`/api/leagues/${leagueId}/table/history`).expect(200);
-    expect(tableHistory.body).toHaveLength(1);
-    expect(tableHistory.body[0].positions).toHaveLength(4);
     await request(app).post(`/api/leagues/${leagueId}/reset`).expect(200);
     await request(app).post(`/api/leagues/${leagueId}/simulate/next`).expect(200);
     const instant = await pool.query<{ simulation_result: unknown }>(

@@ -96,8 +96,6 @@ export const api = {
   league: (id: number | string) => request<LeagueDetail>(`/api/leagues/${id}`),
   table: (id: number | string, upToMatchday?: number) =>
     request<Standing[]>(`/api/leagues/${id}/table${upToMatchday ? `?upToMatchday=${upToMatchday}` : ''}`),
-  tableHistory: (id: number | string) =>
-    request<Array<{ matchday: number; positions: Array<{ club_id: number | string; club_name: string; position: number }> }>>(`/api/leagues/${id}/table/history`),
   matches: (id: number | string, matchday?: number) =>
     request<Match[]>(`/api/leagues/${id}/matches${matchday ? `?matchday=${matchday}` : ''}`),
   match: (id: number | string) => request<MatchDetail>(`/api/matches/${id}`),

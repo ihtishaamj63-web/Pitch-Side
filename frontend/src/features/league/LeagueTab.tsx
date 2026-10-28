@@ -15,7 +15,7 @@ export function LeagueTab({ tab, leagueId, clubs, standings, matchday, onMatchda
   if (tab === 'live') return <LiveHub leagueId={leagueId} managerClubId={managerClubId} liveState={liveState} />;
   if (tab === 'scorers') return <ScorersTab key={refreshKey} leagueId={leagueId} matchday={matchday} />;
   if (tab === 'awards') return <AwardsTab key={refreshKey} leagueId={leagueId} matchday={matchday} seasonComplete={seasonComplete} />;
-  return <TableTab leagueId={leagueId} standings={standings} topZone={topZone} bottomZone={bottomZone} />;
+  return <TableTab standings={standings} topZone={topZone} bottomZone={bottomZone} />;
 }
 
 function LiveHub({ leagueId, managerClubId, liveState: live }: { leagueId: string; managerClubId: number | null; liveState: LiveLeagueState }) {
@@ -97,14 +97,8 @@ export function MatchPitch({ homeClub, awayClub, homePlayers, awayPlayers, homeS
   </section>;
 }
 
-function TableTab({ leagueId, standings, topZone, bottomZone }: { leagueId: string; standings: Standing[]; topZone: number; bottomZone: number }) {
+function TableTab({ standings, topZone, bottomZone }: { standings: Standing[]; topZone: number; bottomZone: number }) {
   const reduceMotion = useReducedMotion();
-  const [history, setHistory] = useState<Array<{ matchday: number; positions: Array<{ club_id: number | string; club_name: string; position: number }> }>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    api.tableHistory(leagueId).then(data => { if (!cancelled) setHistory(data); }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [leagueId]);
   const previousStats = useRef(new Map<string, Pick<Standing, 'P' | 'W' | 'D' | 'L' | 'GF' | 'GA' | 'GD' | 'Pts'>>());
   const [changedStats, setChangedStats] = useState(new Set<string>());
   useEffect(() => {
@@ -134,13 +128,6 @@ function TableTab({ leagueId, standings, topZone, bottomZone }: { leagueId: stri
     return <td key={field} className={className}>{field === 'Pts' ? <strong>{displayValue}</strong> : displayValue}</td>;
   };
 
-  const chartClubs = history.length ? history[history.length - 1].positions.slice(0, Math.min(6, standings.length)) : [];
-  const chartPoints = (clubId: number | string) => history.map((round, index) => {
-    const row = round.positions.find(item => String(item.club_id) === String(clubId));
-    const x = history.length <= 1 ? 24 : 24 + index / (history.length - 1) * 592;
-    const y = row ? 16 + (row.position - 1) / Math.max(1, standings.length - 1) * 188 : 204;
-    return `${x},${y}`;
-  }).join(' ');
   return <section className="tab-panel"><SectionTitle title="Standings" detail="Ranked by points, goal difference and goals scored." />
     <div className="legend"><span><i className="legend-top" />Top zone</span><span><i className="legend-bottom" />Bottom zone</span></div>
     {standings.length ? <div className="table-wrap"><table className="standings-table"><thead><tr><th className="align-left">POS</th><th className="align-left">CLUB</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th className="points-col">PTS</th><th className="form-col">FORM</th></tr></thead>
@@ -148,11 +135,10 @@ function TableTab({ leagueId, standings, topZone, bottomZone }: { leagueId: stri
         const clubId = row.club_id || row.id;
         const club = { id: clubId, name: row.club_name || row.name, short_name: row.short_name, colour_primary: row.colour_primary, colour_secondary: row.colour_secondary };
         return <motion.tr layout={!reduceMotion} key={clubId} className={index < topZone ? 'zone-top' : index >= standings.length - bottomZone ? 'zone-bottom' : ''}>
-          <td className="position-cell"><span>{row.position || index + 1}</span>{row.movement !== undefined && row.movement !== 0 && <small className={row.movement > 0 ? 'movement-up' : 'movement-down'} aria-label={`${Math.abs(row.movement)} places ${row.movement > 0 ? 'up' : 'down'}`}>{row.movement > 0 ? '↑' : '↓'}{Math.abs(row.movement)}</small>}</td><td><Link className="table-club" to={`/clubs/${clubId}`}><ClubCrest club={club} size="small" /><strong>{club.name}</strong>{row.live && <span className="match-live-badge">LIVE</span>}{index === 0 && <span className="table-trophy" role="img" aria-label="League leader" title="League leader">🏆</span>}<span className="club-code">{club.short_name}</span></Link></td>
+          <td className="position-cell"><span>{row.position || index + 1}</span></td><td><Link className="table-club" to={`/clubs/${clubId}`}><ClubCrest club={club} size="small" /><strong>{club.name}</strong>{row.live && <span className="match-live-badge">LIVE</span>}{index === 0 && <span className="table-trophy" role="img" aria-label="League leader" title="League leader">🏆</span>}<span className="club-code">{club.short_name}</span></Link></td>
           {statCell(row, 'P')}{statCell(row, 'W')}{statCell(row, 'D')}{statCell(row, 'L')}{statCell(row, 'GF')}{statCell(row, 'GA')}{statCell(row, 'GD')}{statCell(row, 'Pts')}<td><FormDots form={row.form} /></td>
         </motion.tr>;
       })}</tbody></table></div> : <EmptyPanel title="The table is waiting" text="Kick off a matchday to bring the standings to life." />}
-    <section className="table-race"><header><h3>Title race</h3><span>Position by matchday</span></header>{history.length ? <><svg viewBox="0 0 640 220" role="img" aria-label="League positions by matchday"><g className="race-grid">{[1, Math.ceil(standings.length / 2), standings.length].map(position => <line key={position} x1="24" x2="616" y1={16 + (position - 1) / Math.max(1, standings.length - 1) * 188} y2={16 + (position - 1) / Math.max(1, standings.length - 1) * 188} />)}</g>{chartClubs.map((club, index) => <polyline key={club.club_id} points={chartPoints(club.club_id)} className={`race-line race-line--${index % 6}`} />)}</svg><div className="race-legend">{chartClubs.map((club, index) => <span key={club.club_id}><i className={`race-line--${index % 6}`} />{club.club_name}</span>)}</div><div className="race-axis"><span>MD 1</span><span>MD {history.length}</span></div></> : <p>Positions appear after the first completed matchday.</p>}</section>
   </section>;
 }
 
