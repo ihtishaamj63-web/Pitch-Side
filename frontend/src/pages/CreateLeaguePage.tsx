@@ -91,7 +91,6 @@ export function CreateLeague() {
   return <PageMotion className="narrow-page">
     <BackLink to="/" label="All leagues" />
     <h1 className="page-title">Create your <em>league.</em></h1>
-    <p className="page-intro">Pick a name, set the season, and we'll dream up a cast of clubs to get you started.</p>
     <form className="form-panel" onSubmit={submit}>
       <div className="form-section"><div className="form-section-title"><span>01</span><div><h2>League identity</h2><p>Set the scene for your new season.</p></div></div>
         <div className="form-grid"><label>LEAGUE NAME<input required maxLength={48} placeholder="e.g. The Night Division" value={name} onChange={e => setName(e.target.value)} /></label><label>SEASON LABEL<input required maxLength={20} value={season} onChange={e => setSeason(e.target.value)} /></label><label>SEASON START<input type="date" required value={seasonStartDate} onChange={e => setSeasonStartDate(e.target.value)} /></label><label>MATCHDAY CADENCE<select value={matchdayCadence} onChange={e => setMatchdayCadence(Number(e.target.value))}><option value={7}>Every week</option><option value={3}>Every 3 days</option><option value={14}>Every 2 weeks</option></select></label></div>

@@ -32,7 +32,7 @@
 h1, h2, h3, p { margin-top: 0; }
 .hero h1, .page-title, .league-title-row h1, .club-profile-info h1 { margin: 18px 0 13px; font-family: 'Barlow Condensed', sans-serif; font-size: clamp(64px, 7vw, 92px); font-weight: 600; line-height: .91; letter-spacing: -.035em; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 .hero h1 em, .page-title em { color: var(--lime); font-style: normal; }
-.hero-copy > p, .page-intro { max-width: 395px; margin-bottom: 8px; color: #e8edf2; font-size: 13px; line-height: 1.8; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+.hero-copy > p { max-width: 395px; margin-bottom: 8px; color: #e8edf2; font-size: 13px; line-height: 1.8; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
 .button { min-height: 43px; display: inline-flex; justify-content: center; align-items: center; gap: 17px; border: 1px solid transparent; border-radius: 2px; padding: 0 17px; cursor: pointer; font-size: 11px; font-weight: 700; transition: background .18s, border-color .18s, color .18s; }
 .button-primary { background: var(--lime); color: #11180a; }
 .button-primary:hover { background: #d7ff7e; }
@@ -81,9 +81,8 @@ h1, h2, h3, p { margin-top: 0; }
 .back-link:hover { color: var(--lime); }
 .back-link span { color: var(--lime); font-size: 15px; }
 .narrow-page { max-width: 780px; margin: 0 auto; }
-.page-title { margin: 14px 0 13px; font-size: 68px; }
-.page-intro { margin-bottom: 26px; }
-.form-panel { margin-top: 26px; border: 1px solid var(--line); background: #0e1825; }
+.page-title { margin: 14px 0 13px; font-size: 68px; color: #fff; }
+.form-panel { margin-top: 39px; border: 1px solid var(--line); background: #0e1825; }
 .form-section { padding: 23px 24px; border-bottom: 1px solid var(--line); }
 .form-section-title { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 18px; }
 .form-section-title > span { color: var(--lime); font-family: 'Barlow Condensed', sans-serif; font-size: 20px; }
@@ -493,6 +492,14 @@ h1, h2, h3, p { margin-top: 0; }
 
 #root .app-shell * {
   color: #193322;
+}
+
+#root .page-title {
+  color: #fff;
+}
+
+#root .page-title em {
+  color: var(--lime);
 }
 
 #root .footer {
