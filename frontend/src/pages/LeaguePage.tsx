@@ -33,16 +33,33 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
   const [pendingManagerClubId, setPendingManagerClubId] = useState<number | null>(null);
   const [managerTactics, setManagerTactics] = useState<Tactics>(savedManager.tactics);
   const [simulationBusy, setSimulationBusy] = useState(false);
+  const managerStanding = standings.find(
+    entry => Number(entry.club_id) === managerClubId,
+  );
+
+  const recentResults = (managerStanding?.form ?? '').slice(-5).split('');
+
+  const managerSacked =
+    managerClubId !== null &&
+    recentResults.length === 5 &&
+    recentResults.every(result => result === 'L');
+
   useEffect(() => {
-    if (!managerClubId) return;
-    const row = standings.find(entry => Number(entry.club_id) === managerClubId);
-    const recent = (row?.form ?? '').slice(-5).split('');
-    if (recent.length === 5 && recent.every((result: string) => result === 'L')) {
+    if (managerSacked) {
       clearManagerClubId(leagueId);
-      setManagerClubId(null);
-      setError('You have been sacked after a run of five straight defeats.');
     }
-  }, [standings, managerClubId, leagueId]);
+  }, [managerSacked, leagueId]);
+
+  const activeManagerClubId = managerSacked ? null : managerClubId;
+
+  const managedClub = detail?.clubs.find(
+    club => Number(club.id) === activeManagerClubId,
+  );
+
+  const displayedError = managerSacked
+    ? 'You have been sacked after a run of five straight defeats.'
+    : error;
+
   const wasLive = useRef(false);
 
   useEffect(() => {
@@ -83,9 +100,19 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
         return;
       } else if (action === 'next') {
         const nextMatchday = Math.min(totalMatchdays, Math.floor(playedMatches / Math.max(1, (detail?.clubs.length ?? 2) / 2)) + 1);
-        const result = await api.kickoffMatchday(leagueId, nextMatchday, 'quick', managerClubId === null ? undefined : { clubId: managerClubId, tactics: managerTactics });
+        const result = await api.kickoffMatchday(
+          leagueId,
+          nextMatchday,
+          'quick',
+          activeManagerClubId === null
+            ? undefined
+            : {
+                clubId: activeManagerClubId,
+                tactics: managerTactics,
+              },
+        );
         setSearchParams({ matchday: String(result.matchday) }, { replace: true });
-        if (managerClubId !== null) window.location.href = `/leagues/${leagueId}/match-centre?matchday=${result.matchday}`;
+        if (activeManagerClubId !== null) window.location.href = `/leagues/${leagueId}/match-centre?matchday=${result.matchday}`;
       } else {
         await api.simulate(leagueId, action);
         if (action === 'all') {
@@ -127,7 +154,6 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
   const totalMatches = detail.progress.total_matches ?? league.total_matches ?? 0;
   const totalMatchdays = getTotalMatchdays(detail.clubs.length);
   const seasonComplete = totalMatches > 0 && playedMatches === totalMatches;
-  const managedClub = detail.clubs.find(club => Number(club.id) === managerClubId);
   return <PageMotion>
     <BackLink to="/" label="All leagues" />
     <section className="league-masthead">
@@ -143,9 +169,9 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
         : <button className="button button-secondary button-small" disabled={simulationBusy || liveState.matches.length > 0} onClick={() => void runSimulation('next')}>{simulationBusy ? 'Starting…' : liveState.matches.length ? 'Matchday live' : 'Kick off matchday'}</button>}
       {!seasonComplete && <button className="button button-quiet button-small" disabled={simulationBusy || liveState.matches.length > 0} onClick={() => void runSimulation('all')}>Simulate season instantly</button>}
       <button className="button button-quiet button-small" disabled={simulationBusy} onClick={() => void runSimulation('reset')}>Reset</button>
-      {managerClubId === null && <button className="button button-quiet button-small" onClick={() => { setPendingManagerClubId(null); setManagerPickerOpen(true); }}>Choose your team</button>}
+      {activeManagerClubId === null && <button className="button button-quiet button-small" onClick={() => { setPendingManagerClubId(null); setManagerPickerOpen(true); }}>Choose your team</button>}
     </div></div>
-    {currentTab === 'table' && managerClubId !== null && managedClub && <section className="manager-panel" aria-label="Manager controls">
+    {currentTab === 'table' && activeManagerClubId !== null && managedClub && <section className="manager-panel" aria-label="Manager controls">
       <div className="manager-team">
         <ClubCrest club={managedClub} size="small" />
         <div><div className="eyebrow">YOUR TEAM</div><strong>{managedClub.name}</strong><small>Attack {managedClub.attack} · Defence {managedClub.defence}</small></div>
@@ -185,8 +211,16 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
       </div>
       <button type="button" className="button button-primary" disabled={pendingManagerClubId === null} onClick={startManaging}>Manage selected team</button>
     </section>}
-    {error && <ErrorNotice message={error} onRetry={() => { setError(''); setRefreshKey(k => k + 1); }} />}
-    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={selectedMatchday} onMatchdayChange={matchday => setSearchParams({ matchday: String(matchday) })} managerClubId={managerClubId} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} refreshKey={refreshKey} seasonComplete={seasonComplete} liveState={liveState} />}
+    {displayedError && (
+      <ErrorNotice
+        message={displayedError}
+        onRetry={() => {
+          setError('');
+          setRefreshKey(key => key + 1);
+        }}
+      />
+    )}
+    {loading ? <Loading label="Loading the latest scores" /> : <LeagueTab tab={currentTab} leagueId={leagueId} clubs={detail.clubs} standings={standings} matchday={selectedMatchday} onMatchdayChange={matchday => setSearchParams({ matchday: String(matchday) })} managerClubId={activeManagerClubId} topZone={league.top_zone ?? 4} bottomZone={league.bottom_zone ?? 3} refreshKey={refreshKey} seasonComplete={seasonComplete} liveState={liveState} />}
   </PageMotion>;
 }
 

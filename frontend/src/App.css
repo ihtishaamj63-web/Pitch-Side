@@ -1083,3 +1083,457 @@ h1, h2, h3, p { margin-top: 0; }
 .hero-copy .button { margin-top: 4px; }
 
 #root .topbar, #root .topbar * { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+
+/* ==========================================
+   PITCH-SIDE: LEAGUE HOME REDESIGN
+   ========================================== */
+
+#root .league-section {
+  margin-top: 34px;
+}
+
+#root .league-section-heading {
+  align-items: end;
+  margin-bottom: 22px;
+}
+
+#root .league-section-kicker,
+#root .home-eyebrow {
+  display: block;
+  margin-bottom: 8px;
+  color: #536653;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+#root .league-section .section-heading h2 {
+  margin: 0;
+  color: #193322;
+  font-size: clamp(32px, 4vw, 42px);
+}
+
+#root .league-section .heading-count {
+  margin-left: 6px;
+  color: #627767;
+  font-size: 15px;
+}
+
+#root .league-create-link {
+  display: inline-flex;
+  min-height: 43px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 15px;
+  border: 1px solid #b8c8b3;
+  border-radius: 0;
+  color: #193322;
+  background: #f7faf4;
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+#root .league-create-link > span {
+  font-size: 20px;
+  line-height: 1;
+}
+
+#root .league-create-link:hover {
+  border-color: #277745;
+  background: #edf4e9;
+}
+
+#root .league-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+#root .league-card {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #cbd8c5;
+  border-radius: 0;
+  background: #f7faf4;
+  box-shadow: 0 4px 14px rgba(18, 40, 23, 0.06);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+#root .league-card:hover {
+  transform: translateY(-3px);
+  border-color: #9db99a;
+  box-shadow: 0 12px 26px rgba(18, 40, 23, 0.1);
+}
+
+#root .league-card-link {
+  display: block;
+  color: #193322;
+  text-decoration: none;
+}
+
+#root .league-card-art {
+  height: 155px;
+  padding: 17px 19px;
+  background: linear-gradient(120deg, #214b36, #193322 72%);
+}
+
+#root .league-card-art--1 {
+  background: linear-gradient(120deg, #394c66, #1c2b3b 72%);
+}
+
+#root .league-card-art--2 {
+  background: linear-gradient(120deg, #73523a, #342b25 72%);
+}
+
+#root .league-card-art::after {
+  opacity: 0.6;
+  background: radial-gradient(
+    ellipse at 50% 120%,
+    rgba(201, 242, 160, 0.24),
+    transparent 66%
+  );
+}
+
+#root .league-card-art-top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#root .league-card .season-stamp {
+  padding: 0;
+  color: #f5f8ef;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-shadow: none;
+}
+
+#root .league-card .card-index {
+  float: none;
+  padding: 0;
+  color: #e3eddc;
+  font-size: 30px;
+  line-height: 1;
+  text-shadow: none;
+}
+
+#root .league-card .mini-pitch {
+  bottom: -29px;
+  left: calc(50% - 80px);
+  width: 160px;
+  height: 96px;
+  border-color: rgba(232, 243, 228, 0.42);
+}
+
+#root .league-card .mini-pitch span {
+  border-color: rgba(232, 243, 228, 0.35);
+}
+
+#root .league-art-caption {
+  position: absolute;
+  z-index: 2;
+  right: 17px;
+  bottom: 13px;
+  color: #e0eadb;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+#root .league-card-body {
+  display: block;
+  padding: 20px 19px 17px;
+}
+
+#root .league-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+#root .league-card-title h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #193322;
+  font-size: clamp(20px, 2.4vw, 26px);
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+#root .league-open-arrow {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #d5e0d0;
+  border-radius: 0;
+  color: #277745;
+  font-size: 18px;
+  transition: color 0.2s, background 0.2s;
+}
+
+#root .league-card:hover .league-open-arrow {
+  color: #fff;
+  background: #277745;
+}
+
+#root .league-card-metrics {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+#root .league-card-metrics > div {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#root .league-card-metrics strong {
+  color: #193322;
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 850;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+#root .league-card-metrics div > span {
+  color: #536653;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#root .league-metric-divider {
+  width: 1px;
+  background: #d5e0d0;
+}
+
+#root .league-card .league-progress {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 0;
+  background: #dfe8da;
+}
+
+#root .league-card .league-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #277745;
+  transition: width 0.4s ease;
+}
+
+#root .league-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #536653;
+  font-size: 12px;
+}
+
+#root .league-progress-heading strong {
+  color: #193322;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+#root .league-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 13px;
+  color: #536653;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#root .league-card-cta {
+  color: #20683a;
+  font-weight: 800;
+}
+
+#root .league-card-cta span {
+  margin-left: 4px;
+}
+
+#root .league-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 18px;
+  border-top: 1px solid #e0e8dc;
+  background: #f0f5ec;
+}
+
+#root .league-delete-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  color: #657365;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background 0.2s;
+}
+
+#root .league-delete-button:hover:not(:disabled) {
+  border-color: #e1b7b3;
+  color: #9e3029;
+  background: #fff5f3;
+}
+
+#root .league-delete-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+#root .league-create-link:focus-visible,
+#root .league-delete-button:focus-visible,
+#root .league-card-link:focus-visible {
+  outline: 3px solid #277745;
+  outline-offset: 3px;
+}
+
+#root .hero-copy {
+  background: #e9f0e2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+#root .hero-copy h1 {
+  color: #193322;
+  text-shadow: none;
+}
+
+#root .hero-copy h1 em {
+  color: #277745;
+}
+
+#root .hero-copy > p {
+  color: #405747;
+  text-shadow: none;
+}
+
+#root .hero-copy .home-eyebrow {
+  color: #536653;
+}
+
+/* ==========================================
+   MATCH CENTRE: LIVE MATCH CLOCK
+   ========================================== */
+
+#root .report-match-clock {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 6px 13px;
+  border: 1px solid #cbd8c5;
+  border-radius: 0;
+  color: #405747;
+  background: #edf4e9;
+  font-size: 13px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+#root .report-match-clock.is-live {
+  border-color: #e4b4ae;
+  color: #9e3029;
+  background: #fff2ef;
+}
+
+#root .report-live-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #c94747;
+  box-shadow: 0 0 0 3px rgba(201, 71, 71, 0.13);
+  animation: report-live-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes report-live-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ==========================================
+   RESPONSIVE LEAGUE CARDS
+   ========================================== */
+
+@media (max-width: 760px) {
+  #root .league-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #root .league-card-art {
+    height: 140px;
+  }
+}
+
+@media (max-width: 480px) {
+  #root .league-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  #root .league-card-body {
+    padding: 17px 14px 15px;
+  }
+
+  #root .league-card-metrics {
+    gap: 11px;
+  }
+
+  #root .league-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  #root .league-card-actions {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root .report-live-dot {
+    animation: none;
+  }
+}

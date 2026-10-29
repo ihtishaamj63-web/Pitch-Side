@@ -180,6 +180,12 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
   const [selected, setSelected] = useState('');
   const [loadedMatch, setMatch] = useState<MatchDetail | null>(null);
   const [error, setError] = useState('');
+  const [liveClock, setLiveClock] = useState({
+    minute: 0,
+    minuteExtra: 0,
+    period: 'scheduled',
+    status: 'scheduled' as 'scheduled' | 'live' | 'finished',
+  });
   useEffect(() => {
     let cancelled = false;
     api.matches(leagueId, matchday).then(data => {
@@ -192,10 +198,100 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
   }, [leagueId, matchday, managerClubId, requestedMatch]);
   useEffect(() => {
     if (!selected) return;
+
     let cancelled = false;
-    api.match(selected).then(data => { if (!cancelled) { setMatch(data); setError(''); } }).catch(e => { if (!cancelled) setError(readableError(e)); });
-    return () => { cancelled = true; };
+
+    api.match(selected)
+      .then(data => {
+        if (cancelled) return;
+
+        setMatch(data);
+        setError('');
+
+        setLiveClock({
+          minute: data.minute ?? data.clock?.minute ?? 0,
+          minuteExtra:
+            data.minute_extra ?? data.clock?.minute_extra ?? 0,
+          period: data.period ?? data.clock?.period ?? 'scheduled',
+          status: data.status ?? 'scheduled',
+        });
+      })
+      .catch(err => {
+        if (!cancelled) setError(readableError(err));
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selected]);
+
+  useEffect(() => {
+    if (!selected || loadedMatch?.status !== 'live') return;
+
+    let cancelled = false;
+
+    let cursor = Math.max(
+      0,
+      ...(loadedMatch.events ?? []).map(event => event.seq),
+    );
+
+    const poll = async () => {
+      try {
+        const update = await api.matchLive(selected, cursor);
+
+        if (cancelled) return;
+
+        setLiveClock({
+          minute: update.minute,
+          minuteExtra: update.minute_extra,
+          period: update.period,
+          status: update.status,
+        });
+
+        if (update.events.length > 0) {
+          cursor = Math.max(
+            cursor,
+            ...update.events.map(event => event.seq),
+          );
+        }
+
+        setMatch(current =>
+          current
+            ? {
+                ...current,
+                status: update.status,
+                minute: update.minute,
+                minute_extra: update.minute_extra,
+                period: update.period as MatchDetail['period'],
+                home_goals: update.home_goals,
+                away_goals: update.away_goals,
+              }
+            : current,
+        );
+
+        if (update.status === 'finished') {
+          const finalReport = await api.match(selected);
+
+          if (!cancelled) {
+            setMatch(finalReport);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setError(readableError(err));
+      }
+    };
+
+    void poll();
+
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selected, loadedMatch?.status]);
   const match = loadedMatch && String(loadedMatch.id) === selected ? loadedMatch : null;
   const allMatchEvents = match ? getMatchEvents(match) : [];
   const keyEvents = allMatchEvents.filter(event => event.eventType !== 'foul');
@@ -207,7 +303,30 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
   return <section className="tab-panel match-centre-page"><div className="match-centre-heading"><h2>Match report</h2></div>
     {error && <ErrorNotice message={error} />}
     {match ? <div className="match-report">
-      <div className="report-scoreboard"><span className="report-round">MATCHDAY {match.matchday}</span><div className="report-teams"><ReportTeam club={clubFromMatch(match, 'home')} /><div className="report-score">{match.home_goals ?? '–'}<span>:</span>{match.away_goals ?? '–'}</div><ReportTeam club={clubFromMatch(match, 'away')} /></div><span className="report-date">{match.played_at ? new Date(match.played_at).toLocaleString() : 'KICK-OFF PENDING'}</span></div>
+      <div className="report-scoreboard"><span className="report-round">MATCHDAY {match.matchday}</span><div className="report-teams"><ReportTeam club={clubFromMatch(match, 'home')} /><div className="report-score">{match.home_goals ?? '–'}<span>:</span>{match.away_goals ?? '–'}</div>
+      <div
+        className={`report-match-clock ${
+          liveClock.status === 'live' ? 'is-live' : ''
+        }`}
+        aria-live="polite"
+      >
+        {liveClock.status === 'live' ? (
+          <>
+            <span className="report-live-dot" />
+            {liveClock.period === 'half_time'
+              ? 'HALF-TIME'
+              : `${liveClock.minute}${
+                  liveClock.minuteExtra
+                    ? `+${liveClock.minuteExtra}`
+                    : ''
+                }′`}
+          </>
+        ) : liveClock.status === 'finished' ? (
+          'FULL-TIME'
+        ) : (
+          'KICK-OFF PENDING'
+        )}
+      </div><ReportTeam club={clubFromMatch(match, 'away')} /></div><span className="report-date">{match.played_at ? new Date(match.played_at).toLocaleString() : 'KICK-OFF PENDING'}</span></div>
       {!isMatchPlayed ? <div className="pre-match-preview">
         <img src="/matchday/kickoff.jpg" alt="" />
         <div><div className="eyebrow">FIXTURE PREVIEW</div><h3>Ready for kick-off</h3><p>Line-ups, match events and statistics will appear after this matchday is simulated.</p></div>
