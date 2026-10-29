@@ -151,7 +151,7 @@ function FixturesTab({ leagueId, matchday, onMatchdayChange, totalMatchdays }: {
   const loadMatches = useCallback(() => api.matches(leagueId, matchday), [leagueId, matchday]);
   const { data: matchData, error } = useApi(`matches:${leagueId}:${matchday}`, loadMatches);
   const matches = matchData ?? [];
-  return <section className="tab-panel"><div className="content-heading"><div><h2>Fixtures <span className="heading-count">/ Matchday {String(matchday).padStart(2, '0')}</span></h2></div><div className="matchday-stepper"><button type="button" disabled={matchday <= 1} onClick={() => onMatchdayChange(Math.max(1, matchday - 1))}>Previous</button><label className="matchday-select">Matchday<select value={matchday} onChange={e => onMatchdayChange(Number(e.target.value))}>{Array.from({ length: totalMatchdays }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select></label><button type="button" disabled={matchday >= totalMatchdays} onClick={() => onMatchdayChange(Math.min(totalMatchdays, matchday + 1))}>Next</button></div></div>
+  return <section className="tab-panel"><div className="content-heading"><div><h2>Fixtures <span className="heading-count">/ Matchday {String(matchday).padStart(2, '0')}</span></h2></div><div className="matchday-stepper"><button type="button" disabled={matchday <= 1} onClick={() => onMatchdayChange(Math.max(1, matchday - 1))}>Previous</button><label className="matchday-select"><select aria-label="Matchday" value={matchday} onChange={e => onMatchdayChange(Number(e.target.value))}>{Array.from({ length: totalMatchdays }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select></label><button type="button" disabled={matchday >= totalMatchdays} onClick={() => onMatchdayChange(Math.min(totalMatchdays, matchday + 1))}>Next</button></div></div>
     {error && <ErrorNotice message={error} />}
     <MatchList matches={matches} leagueId={leagueId} />
   </section>;
@@ -164,8 +164,7 @@ export function MatchList({ matches, leagueId }: { matches: Match[]; leagueId?: 
     <span className={`match-score${match.home_goals === null ? ' upcoming' : ''}`}>{match.home_goals ?? '–'} <i>:</i> {match.away_goals ?? '–'}</span>
     {match.status === 'live' && <span className="match-live-badge">LIVE {match.minute ?? 0}{match.minute_extra ? `+${match.minute_extra}` : ''}&apos;</span>}
     <MatchTeam match={match} side="away" />
-    {match.goal_events?.length ? <span className="match-event-summary">{match.goal_events.map((goal, index) => <span key={`${goal.minute}-${index}`}><strong>{goal.player_name} {goal.minute}&apos;</strong>{goal.assist_player_name ? ` · Assist: ${goal.assist_player_name}` : ' · Unassisted'}</span>)}</span> : null}
-    {match.home_xg !== null && match.home_xg !== undefined ? <span className="match-stat-summary">xG {Number(match.home_xg).toFixed(2)} – {Number(match.away_xg).toFixed(2)} · YC {match.yellow_card_count ?? 0} · RC {match.red_card_count ?? 0}</span> : null}
+
   </Link>)}</div> : <EmptyPanel title="No fixtures in this round" text="Select another matchday or simulate to reveal what's next." />;
 }
 
