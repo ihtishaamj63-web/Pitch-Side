@@ -1,6 +1,6 @@
 * { box-sizing: border-box; scrollbar-width: auto; border-radius: 0 !important; }
 html { min-width: 320px; scroll-behavior: smooth; scrollbar-width: thin; }
-body { min-width: 320px; min-height: 100vh; margin: 0; background: #081a0a url('/matchday/dark-grass.jpg') center / 420px 420px repeat fixed; }
+body { min-width: 320px; min-height: 100vh; margin: 0; background: #081a0a url('/matchday/football%20field.jpg') center / cover no-repeat fixed; }
 button, input, select { font: inherit; }
 button, a, select { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; text-decoration: none; }
