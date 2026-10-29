@@ -12,7 +12,6 @@ import { MatchPage } from './pages/MatchPage';
 import { PlayerPage } from './pages/PlayerPage';
 import './App.css';
 
-const footerUrl = import.meta.env.VITE_PORTFOLIO_URL;
 type NotificationPreference = 'all' | 'followed' | 'goals';
 interface LiveNotice { id: string; text: string; createdAt: string; read: boolean }
 function App() {
@@ -97,7 +96,7 @@ function AppContent() {
   return (
       <div className="app-shell">
         <header className="topbar">
-          <Link className="brand" to="/" aria-label="Pitch home"><span className="brand-mark">P</span><span>PITCH</span></Link>
+          <Link className="brand" to="/" aria-label="Pitch home"><span className="brand-mark">PS</span><span>PITCHSIDE</span></Link>
           <LiveBar leagueId={leagueId} managerClubId={managerClubId} liveState={liveState} />
         </header>
         <main className="main-content">
@@ -115,7 +114,6 @@ function AppContent() {
           </AnimatePresence>
         </main>
         {toast && <div className="live-toast" role="status" aria-live="polite"><span>{toast.text}</span><button type="button" aria-label="Dismiss match alert" onClick={() => setToast(null)}>Dismiss</button></div>}
-        <footer className="footer"><span>Built by {footerUrl ? <a href={footerUrl} target="_blank" rel="noreferrer">Ihtishaam</a> : 'Ihtishaam'}</span></footer>
       </div>
   );
 }

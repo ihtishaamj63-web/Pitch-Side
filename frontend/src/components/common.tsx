@@ -7,8 +7,8 @@ export function PageMotion({ children, className = '' }: { children: ReactNode; 
   return <motion.div className={className} initial={reduceMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.32, ease: 'easeOut' }}>{children}</motion.div>;
 }
 
-export function SectionTitle({ title, detail }: { title: string; detail: string }) {
-  return <div className="content-heading"><div><h2>{title}</h2><p>{detail}</p></div></div>;
+export function SectionTitle({ title, detail }: { title: string; detail?: string }) {
+  return <div className="content-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div></div>;
 }
 
 export function BackLink({ to, label }: { to: string; label: string }) {

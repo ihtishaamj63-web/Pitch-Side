@@ -33,6 +33,16 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
   const [pendingManagerClubId, setPendingManagerClubId] = useState<number | null>(null);
   const [managerTactics, setManagerTactics] = useState<Tactics>(savedManager.tactics);
   const [simulationBusy, setSimulationBusy] = useState(false);
+  useEffect(() => {
+    if (!managerClubId) return;
+    const row = standings.find(entry => Number(entry.club_id) === managerClubId);
+    const recent = (row?.form ?? '').slice(-5).split('');
+    if (recent.length === 5 && recent.every((result: string) => result === 'L')) {
+      clearManagerClubId(leagueId);
+      setManagerClubId(null);
+      setError('You have been sacked after a run of five straight defeats.');
+    }
+  }, [standings, managerClubId, leagueId]);
   const wasLive = useRef(false);
 
   useEffect(() => {
@@ -115,7 +125,6 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
   const league = detail.league;
   const playedMatches = detail.progress.played_matches ?? league.played_matches ?? 0;
   const totalMatches = detail.progress.total_matches ?? league.total_matches ?? 0;
-  const progressPercent = totalMatches ? Math.round(playedMatches / totalMatches * 100) : 0;
   const totalMatchdays = getTotalMatchdays(detail.clubs.length);
   const seasonComplete = totalMatches > 0 && playedMatches === totalMatches;
   const managedClub = detail.clubs.find(club => Number(club.id) === managerClubId);
@@ -123,16 +132,14 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
     <BackLink to="/" label="All leagues" />
     <section className="league-masthead">
       <div className="masthead-meta"><span className="status-pill"><span className="live-dot" /> SEASON IN PLAY</span><span>{league.season_label}</span><span>{detail.clubs.length} CLUBS</span></div>
-      <div className="league-title-row"><div><h1>{league.name}</h1><p>{league.season_label} league competition</p></div><div className="season-progress-ring"><strong>{progressPercent}<small>%</small></strong><span>COMPLETE</span></div></div>
-      <div className="season-progress"><span style={{ width: `${Math.min(100, progressPercent)}%` }} /></div>
-      <div className="progress-foot"><span>Matchday {Math.max(1, Math.ceil(playedMatches / Math.max(1, detail.clubs.length / 2)) + 1)}</span><span>{playedMatches} / {totalMatches} matches played</span></div>
+      <div className="league-title-row"><div><h1>{league.name}</h1><p>{league.season_label} league competition</p></div></div>
     </section>
     <div className="league-toolbar"><nav className="league-tabs" aria-label="League sections">
       {tabs.map(([id, label]) => <Link key={id} to={`/leagues/${leagueId}/${id}?matchday=${selectedMatchday}`} className={`league-tab${currentTab === id ? ' is-active' : ''}`}>{label}</Link>)}
     </nav>
     <div className="simulation-actions">
       {seasonComplete
-        ? <Link className="button button-secondary button-small" to={`/leagues/${leagueId}/awards?matchday=${totalMatchdays}`}>End season <span aria-hidden="true">🏆</span></Link>
+        ? <Link className="button button-secondary button-small" to={`/leagues/${leagueId}/awards?matchday=${totalMatchdays}`}>End season</Link>
         : <button className="button button-secondary button-small" disabled={simulationBusy || liveState.matches.length > 0} onClick={() => void runSimulation('next')}>{simulationBusy ? 'Starting…' : liveState.matches.length ? 'Matchday live' : 'Kick off matchday'}</button>}
       {!seasonComplete && <button className="button button-quiet button-small" disabled={simulationBusy || liveState.matches.length > 0} onClick={() => void runSimulation('all')}>Simulate season instantly</button>}
       <button className="button button-quiet button-small" disabled={simulationBusy} onClick={() => void runSimulation('reset')}>Reset</button>

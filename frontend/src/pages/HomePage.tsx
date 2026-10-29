@@ -31,7 +31,7 @@ export function LeagueHome() {
           <Link to="/leagues/new" className="button button-primary">Create a league</Link>
         </div>
         <div className="hero-art">
-          <img className="hero-photo" src="/matchday/kickoff.jpg" alt="A football on a grass pitch" />
+          <img className="hero-photo" src="/matchday/fans.jpg" alt="Fans in a stadium" />
         </div>
       </section>
       <section className="league-section" id="leagues">
@@ -41,7 +41,7 @@ export function LeagueHome() {
           <div className="league-grid">
             {leagues.map((league, index) => <article className="league-card" key={league.id}>
               <Link to={`/leagues/${league.id}`} className="league-card-link">
-                <div className={`league-card-art league-card-art--${index % 3}`}><span className="season-stamp">{league.season_label}</span><span className="card-index">{String(index + 1).padStart(2, '0')}</span><div className="mini-pitch"><span /></div></div>
+                <div className={`league-card-art league-card-art--${index % 3}`}><span className="season-stamp">{league.season_label}</span> <span className="card-index">{String(index + 1).padStart(2, '0')}</span><div className="mini-pitch"><span /></div></div>
                 <div className="league-card-body"><div><h3>{league.name}</h3><p>{league.club_count} clubs <span>·</span> {league.total_matches} fixtures</p></div></div>
                 <div className="league-progress"><span style={{ width: `${league.total_matches ? Math.min(100, league.played_matches / league.total_matches * 100) : 0}%` }} /></div>
                 <div className="progress-label"><span>SEASON PROGRESS</span><span>{league.played_matches} / {league.total_matches} played</span></div>

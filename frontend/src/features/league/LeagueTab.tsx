@@ -15,7 +15,7 @@ export function LeagueTab({ tab, leagueId, clubs, standings, matchday, onMatchda
   if (tab === 'live') return <LiveHub leagueId={leagueId} managerClubId={managerClubId} liveState={liveState} />;
   if (tab === 'stats') return <ScorersTab key={refreshKey} leagueId={leagueId} matchday={matchday} />;
   if (tab === 'awards') return <AwardsTab key={refreshKey} leagueId={leagueId} matchday={matchday} seasonComplete={seasonComplete} />;
-  return <TableTab leagueId={leagueId} standings={standings} topZone={topZone} bottomZone={bottomZone} />;
+  return <TableTab standings={standings} topZone={topZone} bottomZone={bottomZone} />;
 }
 
 function LiveHub({ leagueId, managerClubId, liveState: live }: { leagueId: string; managerClubId: number | null; liveState: LiveLeagueState }) {
@@ -97,14 +97,8 @@ export function MatchPitch({ homeClub, awayClub, homePlayers, awayPlayers, homeS
   </section>;
 }
 
-function TableTab({ leagueId, standings, topZone, bottomZone }: { leagueId: string; standings: Standing[]; topZone: number; bottomZone: number }) {
+function TableTab({ standings, topZone, bottomZone }: { standings: Standing[]; topZone: number; bottomZone: number }) {
   const reduceMotion = useReducedMotion();
-  const [history, setHistory] = useState<Array<{ matchday: number; positions: Array<{ club_id: number | string; club_name: string; position: number }> }>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    api.tableHistory(leagueId).then(data => { if (!cancelled) setHistory(data); }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [leagueId]);
   const previousStats = useRef(new Map<string, Pick<Standing, 'P' | 'W' | 'D' | 'L' | 'GF' | 'GA' | 'GD' | 'Pts'>>());
   const [changedStats, setChangedStats] = useState(new Set<string>());
   useEffect(() => {
@@ -134,14 +128,7 @@ function TableTab({ leagueId, standings, topZone, bottomZone }: { leagueId: stri
     return <td key={field} className={className}>{field === 'Pts' ? <strong>{displayValue}</strong> : displayValue}</td>;
   };
 
-  const chartClubs = history.length ? history[history.length - 1].positions.slice(0, Math.min(6, standings.length)) : [];
-  const chartPoints = (clubId: number | string) => history.map((round, index) => {
-    const row = round.positions.find(item => String(item.club_id) === String(clubId));
-    const x = history.length <= 1 ? 24 : 24 + index / (history.length - 1) * 592;
-    const y = row ? 16 + (row.position - 1) / Math.max(1, standings.length - 1) * 188 : 204;
-    return `${x},${y}`;
-  }).join(' ');
-  return <section className="tab-panel"><SectionTitle title="Standings" detail="Ranked by points, goal difference and goals scored." />
+  return <section className="tab-panel"><SectionTitle title="Standings" />
     <div className="legend"><span><i className="legend-top" />Top zone</span><span><i className="legend-bottom" />Bottom zone</span></div>
     {standings.length ? <div className="table-wrap"><table className="standings-table"><thead><tr><th className="align-left">POS</th><th className="align-left">CLUB</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th className="points-col">PTS</th><th className="form-col">FORM</th></tr></thead>
       <tbody>{standings.map((row, index) => {
@@ -152,8 +139,7 @@ function TableTab({ leagueId, standings, topZone, bottomZone }: { leagueId: stri
           {statCell(row, 'P')}{statCell(row, 'W')}{statCell(row, 'D')}{statCell(row, 'L')}{statCell(row, 'GF')}{statCell(row, 'GA')}{statCell(row, 'GD')}{statCell(row, 'Pts')}<td><FormDots form={row.form} /></td>
         </motion.tr>;
       })}</tbody></table></div> : <EmptyPanel title="The table is waiting" text="Kick off a matchday to bring the standings to life." />}
-    <section className="table-race"><header><h3>Title race</h3><span>Position by matchday</span></header>{history.length ? <><svg viewBox="0 0 640 220" role="img" aria-label="League positions by matchday"><g className="race-grid">{[1, Math.ceil(standings.length / 2), standings.length].map(position => <line key={position} x1="24" x2="616" y1={16 + (position - 1) / Math.max(1, standings.length - 1) * 188} y2={16 + (position - 1) / Math.max(1, standings.length - 1) * 188} />)}</g>{chartClubs.map((club, index) => <polyline key={club.club_id} points={chartPoints(club.club_id)} className={`race-line race-line--${index % 6}`} />)}</svg><div className="race-legend">{chartClubs.map((club, index) => <span key={club.club_id}><i className={`race-line--${index % 6}`} />{club.club_name}</span>)}</div><div className="race-axis"><span>MD 1</span><span>MD {history.length}</span></div></> : <p>Positions appear after the first completed matchday.</p>}</section>
-  </section>;
+      </section>;
 }
 
 export function FormDots({ form }: { form: string }) {
@@ -213,8 +199,6 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
   const match = loadedMatch && String(loadedMatch.id) === selected ? loadedMatch : null;
   const allMatchEvents = match ? getMatchEvents(match) : [];
   const keyEvents = allMatchEvents.filter(event => event.eventType !== 'foul');
-  const homeEvents = keyEvents.filter(event => String(event.club_id) === String(match?.home_club_id));
-  const awayEvents = keyEvents.filter(event => String(event.club_id) === String(match?.away_club_id));
   const teamStat = (clubId: number | string) => match?.team_stats?.find(stat => String(stat.club_id) === String(clubId));
   const homeStats = match ? teamStat(match.home_club_id) : undefined;
   const awayStats = match ? teamStat(match.away_club_id) : undefined;
@@ -229,7 +213,7 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
         <div><div className="eyebrow">FIXTURE PREVIEW</div><h3>Ready for kick-off</h3><p>Line-ups, match events and statistics will appear after this matchday is simulated.</p></div>
       </div> : <>
         {manOfTheMatch && <div className="report-motm"><span><strong>{manOfTheMatch.player_name} <i className="motm-badge">MOTM</i></strong></span></div>}
-        <div className="timeline"><div className="timeline-column">{homeEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div><div className="timeline-line"><span>0&apos;</span><i /><span>90&apos;</span></div><div className="timeline-column timeline-column--right">{awayEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div></div>
+        <div className="timeline"><div className="timeline-column">{keyEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.club_id === match.home_club_id ? match.home_short_name : match.away_short_name} · {event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div></div>
         {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && !match.substitutions?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
         {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
           ['Expected goals (xG)', Number(match.home_xg ?? homeStats.xg).toFixed(2), Number(match.away_xg ?? awayStats.xg).toFixed(2)],
@@ -252,6 +236,7 @@ function ScorersTab({ leagueId, matchday }: { leagueId: string; matchday: number
   const players = playerData ?? [];
   const [category, setCategory] = useState<'goals' | 'assists' | 'xg' | 'key_passes' | 'tackles' | 'cards' | 'per90'>('goals');
   const [position, setPosition] = useState('ALL');
+  const [clubFilter, setClubFilter] = useState('ALL');
   const [ascending, setAscending] = useState(false);
   const categories = {
     goals: { label: 'Goals', value: (player: PlayerStat) => player.goals, format: (value: number) => String(value) },
@@ -263,11 +248,15 @@ function ScorersTab({ leagueId, matchday }: { leagueId: string; matchday: number
     per90: { label: 'Goal contributions / 90', value: (player: PlayerStat) => player.minutes ? (player.goals + player.assists) * 90 / player.minutes : 0, format: (value: number) => value.toFixed(2) },
   };
   const metric = categories[category];
-  const ranked = players.filter(player => position === 'ALL' || player.position === position)
+  const ranked = players.filter(player => (clubFilter === 'ALL' || player.club_name === clubFilter) && (position === 'ALL' || player.position === position))
     .sort((a, b) => (metric.value(a) - metric.value(b)) * (ascending ? 1 : -1) || a.player_name.localeCompare(b.player_name));
   return <section className="tab-panel"><SectionTitle title="Player statistics" detail="Compare season performance by category and position." />
     {error && <ErrorNotice message={error} />}
     <div className="stats-controls">
+      <label>Club<select value={clubFilter} onChange={event => setClubFilter(event.target.value)}>
+        <option value="ALL">All clubs</option>
+        {[...new Set(players.map(player => player.club_name))].map(clubName => <option value={clubName} key={clubName}>{clubName}</option>)}
+      </select></label>
       <label>Category<select value={category} onChange={event => { setCategory(event.target.value as typeof category); setAscending(false); }}>
         {Object.entries(categories).map(([key, item]) => <option value={key} key={key}>{item.label}</option>)}
       </select></label>
@@ -276,9 +265,9 @@ function ScorersTab({ leagueId, matchday }: { leagueId: string; matchday: number
       </select></label>
       <span>{ranked.length} players</span>
     </div>
-    {ranked.length ? <div className="club-stats-groups">{[...new Set(ranked.map(player => player.club_name))].map(clubName => <section key={clubName} className="club-stats-group"><h3>{clubName}</h3><div className="table-wrap"><table className="player-stats-table"><thead><tr><th>RANK</th><th className="align-left">PLAYER</th><th>POS</th><th>APPS</th><th><button type="button" className="stats-sort" onClick={() => setAscending(value => !value)} aria-label={`Sort ${metric.label} ${ascending ? 'descending' : 'ascending'}`}>{metric.label.toUpperCase()} {ascending ? '↑' : '↓'}</button></th></tr></thead>
-      <tbody>{ranked.filter(player => player.club_name === clubName).map((player, index) => <tr key={player.player_id}><td>{index + 1}</td><td className="align-left"><Link className="stats-player-link" to={`/players/${player.player_id}`}>{player.player_name}</Link></td><td>{player.position}</td><td>{player.appearances}</td><td><strong>{metric.format(metric.value(player))}</strong></td></tr>)}</tbody>
-    </table></div></section>)} </div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to compare the season's players." />}
+    {ranked.length ? <div className="table-wrap"><table className="player-stats-table"><thead><tr><th>RANK</th><th className="align-left">PLAYER</th><th>POS</th><th className="align-left">CLUB</th><th>APPS</th><th><button type="button" className="stats-sort" onClick={() => setAscending(value => !value)} aria-label={`Sort ${metric.label} ${ascending ? 'descending' : 'ascending'}`}>{metric.label.toUpperCase()} {ascending ? '↑' : '↓'}</button></th></tr></thead>
+      <tbody>{ranked.map((player, index) => <tr key={player.player_id}><td>{index + 1}</td><td className="align-left"><Link className="stats-player-link" to={`/players/${player.player_id}`}>{player.player_name}</Link></td><td>{player.position}</td><td className="align-left"><Link to={`/clubs/${player.club_id}`}>{player.club_name}</Link></td><td>{player.appearances}</td><td><strong>{metric.format(metric.value(player))}</strong></td></tr>)}</tbody>
+    </table></div> : <EmptyPanel title="No player statistics yet" text="Simulate fixtures to compare the season's players." />}
   </section>;
 }
 function seasonPlayerScore(player: PlayerStat): number {
