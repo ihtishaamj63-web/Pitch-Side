@@ -295,6 +295,8 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
   const match = loadedMatch && String(loadedMatch.id) === selected ? loadedMatch : null;
   const allMatchEvents = match ? getMatchEvents(match) : [];
   const keyEvents = allMatchEvents.filter(event => event.eventType !== 'foul');
+  const homeEvents = keyEvents.filter(event => String(event.club_id) === String(match?.home_club_id));
+  const awayEvents = keyEvents.filter(event => String(event.club_id) === String(match?.away_club_id));
   const teamStat = (clubId: number | string) => match?.team_stats?.find(stat => String(stat.club_id) === String(clubId));
   const homeStats = match ? teamStat(match.home_club_id) : undefined;
   const awayStats = match ? teamStat(match.away_club_id) : undefined;
@@ -332,7 +334,11 @@ function MatchCentreTab({ leagueId, matchday, managerClubId }: { leagueId: strin
         <div><div className="eyebrow">FIXTURE PREVIEW</div><h3>Ready for kick-off</h3><p>Line-ups, match events and statistics will appear after this matchday is simulated.</p></div>
       </div> : <>
         {manOfTheMatch && <div className="report-motm"><span><strong>{manOfTheMatch.player_name} <i className="motm-badge">MOTM</i></strong></span></div>}
-        <div className="timeline"><div className="timeline-column">{keyEvents.map(event => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{event.club_id === match.home_club_id ? match.home_short_name : match.away_short_name} · {event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div></div>
+        <div className="timeline timeline--split">
+          <div className="timeline-column timeline-column--left">{homeEvents.map((event) => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`} style={{ top: `${Math.min(95, event.minute)}%` }}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{match.home_short_name} · {event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div>
+          <div className="timeline-axis"><span>0&apos;</span><i /><span>90&apos;</span></div>
+          <div className="timeline-column timeline-column--right">{awayEvents.map((event) => <div className={`goal-event goal-event--${event.eventType}`} key={`${event.eventType}-${event.id}`} style={{ top: `${Math.min(95, event.minute)}%` }}><b>{event.minute}&apos;</b><span><strong>{event.player_name}</strong><small>{match.away_short_name} · {event.eventType === 'goal' ? `GOAL${event.assist_player_name ? ` · ASSIST: ${event.assist_player_name}` : ' · UNASSISTED'}` : event.eventType === 'yellow' ? 'YELLOW CARD' : event.eventType === 'red' ? 'RED CARD' : event.eventType === 'substitution' ? `SUB ON · ${event.player_off_name} OFF` : 'FOUL'}</small></span></div>)}</div>
+        </div>
         {!match.goals?.length && !match.yellow_cards?.length && !match.red_cards?.length && !match.fouls?.length && !match.substitutions?.length && <p className="no-goals">No match events recorded for this fixture.</p>}
         {homeStats && awayStats && <section className="match-stats"><h3>Match statistics</h3><div className="match-stats-head"><span>{match.home_short_name}</span><span>STAT</span><span>{match.away_short_name}</span></div>{[
           ['Expected goals (xG)', Number(match.home_xg ?? homeStats.xg).toFixed(2), Number(match.away_xg ?? awayStats.xg).toFixed(2)],
