@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, readableError } from '../api';
@@ -56,12 +57,14 @@ export function LeagueHome() {
             <br />
             <em>Run the season.</em>
           </h1>
+
           <p>
-            Create your clubs, simulate fixtures and follow every result,
-            match report and player statistic.
+            Create your clubs, simulate the fixtures and follow the
+            table, match reports and player statistics.
           </p>
+
           <Link to="/leagues/new" className="button button-primary">
-            Create a league <span aria-hidden="true">→</span>
+            Create a league
           </Link>
         </div>
 
@@ -69,24 +72,27 @@ export function LeagueHome() {
           <img
             className="hero-photo"
             src="/matchday/fans.jpg"
-            alt="Football fans in a stadium"
+            alt="Fans in a stadium"
           />
         </div>
       </section>
 
       <section className="league-section" id="leagues">
-        <div className="section-heading league-section-heading">
+        <div className="section-heading">
           <div>
             <span className="league-section-kicker">YOUR COMPETITIONS</span>
             <h2>
-              Your leagues{' '}
+              Leagues{' '}
               <span className="heading-count">
                 {String(leagues.length).padStart(2, '0')}
               </span>
             </h2>
           </div>
 
-          <Link to="/leagues/new" className="league-create-link">
+          <Link
+            to="/leagues/new"
+            className="league-create-link"
+          >
             <span aria-hidden="true">+</span> New league
           </Link>
         </div>
@@ -139,10 +145,7 @@ export function LeagueHome() {
                     <div className="league-card-body">
                       <div className="league-card-title">
                         <h3>{league.name}</h3>
-                        <span
-                          className="league-open-arrow"
-                          aria-hidden="true"
-                        >
+                        <span className="league-open-arrow" aria-hidden="true">
                           ↗
                         </span>
                       </div>
@@ -184,7 +187,15 @@ export function LeagueHome() {
                         <span style={{ width: `${progress}%` }} />
                       </div>
 
-
+                      <div className="league-card-footer">
+                        <span>
+                          {league.played_matches} of {league.total_matches}{' '}
+                          fixtures completed
+                        </span>
+                        <span className="league-card-cta">
+                          Open league <span aria-hidden="true">→</span>
+                        </span>
+                      </div>
                     </div>
                   </Link>
 
