@@ -8,6 +8,15 @@ import { isEventRevealed, matchClockAt } from '../lib/matchClock';
 
 export const clubsRouter = Router();
 
+clubsRouter.patch('/clubs/:id', async (req, res) => {
+  const clubId = parseId(req.params.id);
+  const name = String(req.body?.name ?? '').trim();
+  if (!name || name.length > 100) throw new ApiError('Club name must be 1-100 characters', 400);
+  const result = await pool.query('UPDATE clubs SET name = $1 WHERE id = $2 RETURNING id, name', [name, clubId]);
+  if (!result.rowCount) throw new ApiError('Club not found', 404);
+  res.json(result.rows[0]);
+});
+
 clubsRouter.get('/clubs/:id', async (req, res) => {
   const clubId = parseId(req.params.id);
   const clubResult = await pool.query(

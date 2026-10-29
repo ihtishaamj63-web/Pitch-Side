@@ -2,6 +2,8 @@
 
 Pitch-Side is a fictional football league simulator. Create a league, follow every matchday live, and explore match reports, standings, player statistics, awards and club profiles.
 
+![PitchSide homepage](./pitchside%20homepage.png)
+
 ## Try this
 
 1. Open the preloaded **Demo league**.

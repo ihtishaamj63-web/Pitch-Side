@@ -124,6 +124,8 @@ export const api = {
     request<{ status: string; matchesFinished: number }>(`/api/leagues/${id}/live/skip`, json()),
   resetLeague: (id: number | string) =>
     request<{ status: string }>(`/api/leagues/${id}/reset`, json()),
+  renameClub: (id: number | string, name: string) =>
+    request<{ id: number | string; name: string }>(`/api/clubs/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   club: (id: number | string) => request<ClubDetail>(`/api/clubs/${id}`),
 };
 

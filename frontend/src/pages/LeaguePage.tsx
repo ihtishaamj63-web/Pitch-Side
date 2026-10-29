@@ -31,6 +31,7 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
   const [managerClubId, setManagerClubId] = useState<number | null>(savedManager.clubId);
   const [managerPickerOpen, setManagerPickerOpen] = useState(false);
   const [pendingManagerClubId, setPendingManagerClubId] = useState<number | null>(null);
+  const [pendingManagerClubName, setPendingManagerClubName] = useState('');
   const [managerTactics, setManagerTactics] = useState<Tactics>(savedManager.tactics);
   const [simulationBusy, setSimulationBusy] = useState(false);
   const managerStanding = standings.find(
@@ -124,15 +125,20 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
     finally { setSimulationBusy(false); }
   };
 
-  const startManaging = () => {
+  const startManaging = async () => {
     if (pendingManagerClubId === null) return;
     try {
+      if (pendingManagerClubName.trim()) {
+        await api.renameClub(pendingManagerClubId, pendingManagerClubName.trim());
+      }
       saveManagerClubId(leagueId, pendingManagerClubId);
       setManagerClubId(pendingManagerClubId);
       setManagerTactics('balanced');
       setManagerPickerOpen(false);
       setPendingManagerClubId(null);
+      setPendingManagerClubName('');
       setError('');
+      setRefreshKey(key => key + 1);
     } catch (err) {
       setError(readableError(err));
     }
@@ -209,7 +215,8 @@ export function LeaguePage({ liveState }: { liveState: LiveLeagueState }) {
           <ClubCrest club={club} size="small" /><strong>{club.name}</strong><span>{club.short_name}</span><small>ATT {club.attack} · DEF {club.defence}</small>
         </button>)}
       </div>
-      <button type="button" className="button button-primary" disabled={pendingManagerClubId === null} onClick={startManaging}>Manage selected team</button>
+      <label className="manager-rename">Rename selected club (optional)<input value={pendingManagerClubName} onChange={e => setPendingManagerClubName(e.target.value)} placeholder="New club name" /></label>
+      <button type="button" className="button button-primary" disabled={pendingManagerClubId === null} onClick={() => void startManaging()}>Manage selected team</button>
     </section>}
     {displayedError && (
       <ErrorNotice
